@@ -1,0 +1,17 @@
+[project]
+name = "atrium-evaluator"
+version = "0.0.1"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.112.0",
+    "uvicorn[standard]>=0.30.6",
+    "anthropic>=0.34.0",
+    "python-multipart>=0.0.9",
+    "pillow>=10.4.0",
+    "pydantic>=2.8.2",
+    "pydantic-settings>=2.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=74"]
+build-backend = "setuptools.backends.legacy:build"

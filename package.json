@@ -1,0 +1,20 @@
+{
+  "name": "atrium",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Self-serve AI learning hub for Bright Horizon Chinese School",
+  "scripts": {
+    "dev": "pnpm --parallel -F './packages/*' dev",
+    "build": "pnpm -F './packages/*' build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  }
+}
