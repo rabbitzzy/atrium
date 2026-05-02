@@ -25,7 +25,7 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
   const pdfBuffer = await generateCard(body)
   c.header('Content-Type', 'application/pdf')
   c.header('Content-Disposition', `attachment; filename="card-${body.taskId}.pdf"`)
-  return c.body(pdfBuffer)
+  return c.body(new Uint8Array(pdfBuffer))
 })
 
 const PORT = Number(process.env['PORT'] ?? 3002)

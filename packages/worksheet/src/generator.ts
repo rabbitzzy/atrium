@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { Beta } from '@anthropic-ai/sdk/resources/index.js'
 import QRCode from 'qrcode'
 
 export interface CardRequest {
@@ -28,20 +29,18 @@ interface GeneratedProblem {
 
 async function generateProblems(req: CardRequest): Promise<GeneratedProblem[]> {
   const client = new Anthropic()
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    // Cache the system prompt — it is the same for every worksheet request.
-    system: [
-      {
-        type: 'text',
-        text: `You generate K-5 worksheet problems for a bilingual Chinese-English learning hub.
+  const systemBlock: Beta.PromptCaching.PromptCachingBetaTextBlockParam = {
+    type: 'text',
+    text: `You generate K-5 worksheet problems for a bilingual Chinese-English learning hub.
 Output must be valid JSON: an array of objects with keys: number (int), prompt (English), promptZh (Chinese), answerLines (int 1-4).
 Problems must target the given knowledge components at the given difficulty (1=easy, 5=hard).
 Keep problems age-appropriate, unambiguous, and printable (no URLs, no images).`,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
+    cache_control: { type: 'ephemeral' },
+  }
+  const response = await client.beta.promptCaching.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: [systemBlock],
     messages: [
       {
         role: 'user',
