@@ -72,7 +72,7 @@ Printing is the exception, not the default. Every surface that could produce pap
 
 ### Worksheet density
 
-Multi-problem Cards are the default. The market research (`/docs/02-market-research.md`) flagged this as a trade-off: one problem per page is easier to scan; many per page is more efficient. **Resolution: 3–5 problems per Card, max one page (A4 / Letter), with fixed answer regions sized for a 7-year-old's handwriting.** The scan-alignment system handles multi-problem Cards via fixed template coordinates — this is the Gradescope pattern.
+Multi-problem Cards are the default. The market research (`/docs/research/paper-interaction.md`) flagged this as a trade-off: one problem per page is easier to scan; many per page is more efficient. **Resolution: 3–5 problems per Card, max one page (A4 / Letter), with fixed answer regions sized for a 7-year-old's handwriting.** The scan-alignment system handles multi-problem Cards via fixed template coordinates — this is the Gradescope pattern.
 
 Never print a Card that is mostly blank space. If a KC only generates one or two problems at the appropriate difficulty, the generator must pad to fill the page with supplementary practice problems at the same or adjacent KCs.
 
@@ -196,7 +196,7 @@ These belong in the teacher dashboard and eventually the BHCS portal analytics:
 
 ## References
 
-- `/docs/02-market-research.md` — Kumon's paper-first model; why paper is a trust signal with parents, not a liability
-- `/docs/03-teacher-direction.md` — Teacher grant authority; override log patterns
+- `/docs/research/paper-interaction.md` — Kumon's paper-first model; why paper is a trust signal with parents, not a liability
+- `/docs/pedagogy/teacher-direction.md` — Teacher grant authority; override log patterns
 - `CLAUDE.md` — Operational reality and flywheel; Leaf in domain model and glossary
 - `infra/supabase/migrations/` — Schema for `student_print_state` and `print_events`

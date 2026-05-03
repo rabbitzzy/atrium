@@ -1,9 +1,12 @@
 import base64
 import json
+import os
+import httpx
 from pydantic import BaseModel
-import anthropic
 
-client = anthropic.Anthropic()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 GRADER_SYSTEM = """You are the Docent, an AI evaluator for a bilingual K-5 learning hub.
 
@@ -74,45 +77,32 @@ async def grade_submission(
     task_id: str,
 ) -> EvaluationResult:
     b64 = base64.standard_b64encode(image_bytes).decode()
-
     rubric = get_task_rubric(task_id)
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=[
-            {
-                "type": "text",
-                "text": GRADER_SYSTEM,
-                # Cache the static system prompt across all evaluation calls.
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": f"Task ID: {task_id}\n\nRubric:\n{rubric}\n\nPlease evaluate this student's worksheet.",
-                    },
-                ],
-            }
-        ],
-    )
+    payload = {
+        "system_instruction": {
+            "parts": [{"text": GRADER_SYSTEM}]
+        },
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
+                {"text": f"Task ID: {task_id}\n\nRubric:\n{rubric}\n\nPlease evaluate this student's worksheet."},
+            ],
+        }],
+        "generationConfig": {"response_mime_type": "application/json"},
+    }
 
-    raw = response.content[0].text if response.content else "{}"
-    # Strip markdown code fences if the model wraps in ```json … ```
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0]
+    async with httpx.AsyncClient(timeout=60) as http:
+        resp = await http.post(
+            GEMINI_URL,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+        )
+        resp.raise_for_status()
+
+    data = resp.json()
+    raw = data["candidates"][0]["content"]["parts"][0]["text"]
 
     parsed = json.loads(raw)
     questions = [QuestionResult(**q) for q in parsed.get("questions", [])]

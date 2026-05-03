@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk'
-import type { Beta } from '@anthropic-ai/sdk/resources/index.js'
 import QRCode from 'qrcode'
+
+const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
 export interface CardRequest {
   studentId: string
@@ -9,14 +10,10 @@ export interface CardRequest {
   difficulty: number
 }
 
-// TODO: launch headless Chromium (via playwright or puppeteer) to render → PDF
-// For now, returns a minimal HTML string as placeholder.
 export async function generateCard(req: CardRequest): Promise<Buffer> {
   const problems = await generateProblems(req)
   const qrDataUrl = await QRCode.toDataURL(JSON.stringify({ studentId: req.studentId, taskId: req.taskId }))
   const html = renderCardHtml({ problems, qrDataUrl, req })
-
-  // TODO: replace with actual PDF rendering via Chromium
   return Buffer.from(html, 'utf-8')
 }
 
@@ -28,28 +25,28 @@ interface GeneratedProblem {
 }
 
 async function generateProblems(req: CardRequest): Promise<GeneratedProblem[]> {
-  const client = new Anthropic()
-  const systemBlock: Beta.PromptCaching.PromptCachingBetaTextBlockParam = {
-    type: 'text',
-    text: `You generate K-5 worksheet problems for a bilingual Chinese-English learning hub.
+  const res = await fetch(`${GEMINI_URL}?key=${process.env['GEMINI_API_KEY']}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: {
+        parts: [{
+          text: `You generate K-5 worksheet problems for a bilingual Chinese-English learning hub.
 Output must be valid JSON: an array of objects with keys: number (int), prompt (English), promptZh (Chinese), answerLines (int 1-4).
 Problems must target the given knowledge components at the given difficulty (1=easy, 5=hard).
 Keep problems age-appropriate, unambiguous, and printable (no URLs, no images).`,
-    cache_control: { type: 'ephemeral' },
-  }
-  const response = await client.beta.promptCaching.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: [systemBlock],
-    messages: [
-      {
-        role: 'user',
-        content: `Generate 5 problems for KCs: ${req.kcIds.join(', ')}. Difficulty: ${req.difficulty}/5.`,
+        }],
       },
-    ],
+      contents: [{
+        role: 'user',
+        parts: [{ text: `Generate 5 problems for KCs: ${req.kcIds.join(', ')}. Difficulty: ${req.difficulty}/5.` }],
+      }],
+      generationConfig: { response_mime_type: 'application/json' },
+    }),
   })
-
-  const raw = response.content[0]?.type === 'text' ? response.content[0].text : '[]'
+  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`)
+  const data = await res.json() as { candidates: { content: { parts: { text: string }[] } }[] }
+  const raw = data.candidates[0]?.content.parts[0]?.text ?? '[]'
   try {
     return JSON.parse(raw) as GeneratedProblem[]
   } catch {

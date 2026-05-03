@@ -63,7 +63,7 @@ class EvaluationResult(BaseModel):
 - Temperature: 0 for deterministic grading
 - If malformed JSON: strip markdown fences and retry parse; if still invalid, return 422 with raw response for debugging
 
-## Accuracy notes (from docs/02-market-research.md)
+## Accuracy notes (from `docs/research/paper-interaction.md`)
 - Claude / GPT-4o / Gemini achieve 97–99% transcription accuracy on clean K-5 handwriting
 - Multimodal LLM grading ≥90% F1 on simple math problems vs teacher
 - Phase 1: send full-page image; Phase 2: crop answer regions per template for higher accuracy on multi-problem sheets

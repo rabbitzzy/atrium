@@ -16,7 +16,7 @@ The closest commercial analog is **Squirrel AI's physical learning centers** in 
 - **Short sessions, high turnover.** Students rotate through. Session state must persist across visits, but each session must be productive in 20–40 minutes.
 - **BHCS portal already exists.** This product is a satellite — student profiles, parent visibility, and balance/credit live in the existing portal (Supabase, repo `rabbitzzy/bhcs`). Skill state is the **new** thing here.
 - **Trust matters more than autonomy.** Teachers and parents must be able to inspect everything: what the AI assigned, what the student submitted, what the AI graded, and why. Treat the system as a teacher's transparent assistant, not a black-box tutor.
-- **Paper is a resource, not a commodity.** The printer is shared and each sheet carries a real cost — financial, environmental, and pedagogical. Students earn the right to print their next Card by submitting the current one. This is not a friction tax; it is a flywheel gate that prevents waste, rewards completion, and communicates environmental values to children and families. Every design decision touching the printer must respect this. See `/docs/05-eco-design.md` for the full model.
+- **Paper is a resource, not a commodity.** The printer is shared and each sheet carries a real cost — financial, environmental, and pedagogical. Students earn the right to print their next Card by submitting the current one. This is not a friction tax; it is a flywheel gate that prevents waste, rewards completion, and communicates environmental values to children and families. Every design decision touching the printer must respect this. See `/docs/pedagogy/eco-design.md` for the full model.
 
 ## Domain model (the nouns)
 
@@ -36,7 +36,7 @@ A discrete kiosk visit. Has: student ID, timestamp, list of tasks attempted, tra
 The chess.com-style artifact. NOT a grade. A structured object with: per-question quality tier (e.g. `mastered / shaky / needs-help / not-yet`), the misconception or error pattern detected (if any), one or two specific suggestions framed at the student's level, and the system's planned next task. Persisted to the student's profile and visible to parents/teachers.
 
 ### Leaf (Print Credit)
-The unit that gates paper printing. Earning one Leaf requires submitting a completed Card (scan → AI evaluation, any quality tier). Spending one Leaf prints the next Card. Students start each enrollment period with 2 Leaves to bootstrap their first sessions. Debriefs are always digital-first — shown on screen, never costing a Leaf — because re-engagement is worth the occasional paper. Teachers can grant bonus Leaves for exceptional work. The word "Leaf" is age-appropriate, plant-growth-themed, and consistent with the Atrium spatial vocabulary. See the full Leaf economy in `/docs/05-eco-design.md`.
+The unit that gates paper printing. Earning one Leaf requires submitting a completed Card (scan → AI evaluation, any quality tier). Spending one Leaf prints the next Card. Students start each enrollment period with 2 Leaves to bootstrap their first sessions. Debriefs are always digital-first — shown on screen, never costing a Leaf — because re-engagement is worth the occasional paper. Teachers can grant bonus Leaves for exceptional work. The word "Leaf" is age-appropriate, plant-growth-themed, and consistent with the Atrium spatial vocabulary. See the full Leaf economy in `/docs/pedagogy/eco-design.md`.
 
 ## The flywheel (the verbs)
 
@@ -83,7 +83,7 @@ A worker queue between #3 and #4 (something simple — Inngest, Trigger.dev, or 
 These are defaults to revisit, not commitments.
 
 - **LLM for evaluation & generation:** Claude Sonnet 4.6 or Opus 4.7 via the Anthropic API. Strong at structured output, good at vision, and you already work with the API. Have a Gemini Flash fallback for cost.
-- **Math handwriting OCR:** Pix2Text (open source, free Mathpix alternative, supports Chinese natively) for the cheap path. Mathpix API for the accurate path. Or just send the cropped image to a multimodal LLM and skip OCR — the research (see /docs/02-market-research.md) shows ~97–99% transcription accuracy from Claude/Gemini/GPT-4o on clean handwriting.
+- **Math handwriting OCR:** Pix2Text (open source, free Mathpix alternative, supports Chinese natively) for the cheap path. Mathpix API for the accurate path. Or just send the cropped image to a multimodal LLM and skip OCR — the research (see /docs/research/paper-interaction.md) shows ~97–99% transcription accuracy from Claude/Gemini/GPT-4o on clean handwriting.
 - **Knowledge tracing:** pyBKT for the v1 student model. Defer DKT/pyKT until you have ≥10K interaction logs.
 - **Voice:** Whisper (STT) + ElevenLabs or OpenAI TTS, kid-friendly voice. Mute the mic on idle for privacy (per the Merlyn Mind voice-privacy paper — children's voices in shared spaces is a real concern).
 - **Frontend:** React. Inline styles per BHCS portal convention, DM Sans font.
@@ -123,9 +123,9 @@ These are defaults to revisit, not commitments.
 3. Will worksheets be one task per page or many tasks per page? Many is more efficient; one is easier to scan reliably.
 4. How long should an AI evaluation take from scan to printed feedback? Target: under 30 seconds. If it's longer, students will walk away.
 5. Where does the AI's voice persona come from? Define it. Friendly, encouraging, mildly playful, never sarcastic. Bilingual. Probably named.
-6. **Teacher trust and onboarding.** Traditional teachers need a trust runway — a phased path from full review of every AI evaluation (auditor) to flagged-cases-only review (collaborator) to asynchronous monitoring at scale (multiplier). The teacher-facing dashboard, override/feedback loop, and rubric authoring surface are load-bearing features, not polish. See `/docs/03-teacher-direction.md` for the full model and open questions specific to teacher onboarding.
+6. **Teacher trust and onboarding.** Traditional teachers need a trust runway — a phased path from full review of every AI evaluation (auditor) to flagged-cases-only review (collaborator) to asynchronous monitoring at scale (multiplier). The teacher-facing dashboard, override/feedback loop, and rubric authoring surface are load-bearing features, not polish. See `/docs/pedagogy/teacher-direction.md` for the full model and open questions specific to teacher onboarding.
 7. **Eco metrics and parent visibility.** What's the right way to surface paper-saved stats to parents without it feeling performative? The parent portal could show "your child earned X Leaves this semester" alongside skill progress. But if eco stats feel like a substitute for academic substance, they erode trust. Decide on the balance before Phase 3.
 
 ## References
 
-- See `/docs/02-market-research.md` for the competitive and open-source landscape that shaped these choices.
+- See `/docs/research/` for the competitive landscape, open-source stack, design patterns, and open questions that shaped these choices.

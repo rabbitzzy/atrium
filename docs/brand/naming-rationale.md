@@ -44,7 +44,7 @@ An atrium is defined by light — natural light from above, diffused through an 
 Every other candidate is a metaphor for the software. Atrium is a metaphor for the *room*. Students don't "use Atrium" — they *come to* Atrium. They gather, work, and leave. The shared kiosk is already the spatial anchor of the experience; the name makes that concrete. No other candidate captures the communal, place-based quality of a station that multiple students rotate through in a single afternoon.
 
 **It's calm and institutional in the right way.**
-Banyan feels warm and familial. Trellis feels like developer infrastructure. Atrium feels like a building that has been there a while — a library wing, a museum gallery, a school's central commons. That calm, modern-classical register communicates permanence and trust to parents and teachers before a single feature is explained. For a product where teacher trust is load-bearing (see `/docs/03-teacher-direction.md`), that tone matters.
+Banyan feels warm and familial. Trellis feels like developer infrastructure. Atrium feels like a building that has been there a while — a library wing, a museum gallery, a school's central commons. That calm, modern-classical register communicates permanence and trust to parents and teachers before a single feature is explained. For a product where teacher trust is load-bearing (see `/docs/pedagogy/teacher-direction.md`), that tone matters.
 
 **It's clear in the edtech namespace.**
 No major edtech product is named Atrium. The word appears in biotech (Atrium Health) and enterprise SaaS, but the K–12 learning space is open. That matters as the product grows beyond BHCS.

@@ -92,12 +92,12 @@ The inflection point is when a teacher starts *adding* KCs rather than just appr
 1. What is the minimum review queue size that makes a teacher feel "in control" without burning them out? Too many reviews and they disengage; too few and they don't build calibration.
 2. Should the review queue be synchronous (teacher reviews before student gets feedback) or asynchronous (student gets provisional feedback, teacher can revise it)? Synchronous is safer for trust-building but adds latency.
 3. How do we handle a teacher who overrides the AI incorrectly? The system should never silently discard a correction, but it also should not blindly encode a teacher's mistake into the rubric.
-4. What is the right escalation threshold? Too many escalations and the teacher is overwhelmed; too few and genuine hard cases slip through unreviewd.
+4. What is the right escalation threshold? Too many escalations and the teacher is overwhelmed; too few and genuine hard cases slip through unreviewed.
 5. How do teachers share rubric improvements across classrooms or cohorts? A rubric refined by one teacher should be proposable to others, not siloed.
 
 ---
 
 ## References
 
-- See `/docs/02-market-research.md` for commercial analogs (Squirrel AI, Khanmigo, Century Tech) and their teacher-facing surfaces.
+- See `/docs/research/competitive-landscape.md` for commercial analogs (Squirrel AI, Khanmigo, Century Tech) and their teacher-facing surfaces.
 - See `CLAUDE.md` for the full domain model, flywheel, and operational constraints this research sits within.
