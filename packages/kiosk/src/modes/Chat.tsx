@@ -31,6 +31,7 @@ export default function Chat({ student, onScan, onCheckOut }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <span style={{ fontWeight: 600, fontSize: 18 }}>{student.name} · {student.nameZh}</span>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => window.open('/api/worksheet/print/v0', '_blank')} style={btnStyle('#e8f4fd', '#1a6bb5')}>🖨️ Print Worksheet</button>
           <button onClick={onScan} style={btnStyle('#1a1a2e', '#fff')}>Submit worksheet</button>
           <button onClick={onCheckOut} style={btnStyle('#eee', '#333')}>Check out</button>
         </div>

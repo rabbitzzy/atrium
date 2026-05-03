@@ -110,6 +110,34 @@ create table feedback_reports (
 create index on feedback_reports (student_id, created_at desc);
 
 -- ────────────────────────────────────────────────────────────
+-- Leaf economy: eco-first print credit system
+-- Students earn Leaves by submitting Cards; spend to print.
+-- ────────────────────────────────────────────────────────────
+
+create table student_print_state (
+  student_id    text    primary key,
+  leaf_balance  int     not null default 2   -- 2 bootstrap Leaves on enrollment
+                        check (leaf_balance between 0 and 5),
+  lifetime_earned   int not null default 2,  -- total Leaves ever earned (for reporting)
+  lifetime_spent    int not null default 0,  -- total Cards ever printed
+  updated_at    timestamptz not null default now()
+);
+
+create table print_events (
+  id            uuid primary key default gen_random_uuid(),
+  student_id    text not null,
+  session_id    uuid references sessions(id),
+  event_type    text not null check (event_type in ('earn','spend','grant','refund')),
+  amount        int  not null check (amount > 0),
+  reason        text,                         -- e.g. "submission", "bootstrap", "printer_error", "teacher_grant"
+  granted_by    text,                         -- teacher user_id for 'grant' events; null otherwise
+  created_at    timestamptz not null default now()
+);
+
+create index on print_events (student_id, created_at desc);
+create index on print_events (event_type, created_at desc);
+
+-- ────────────────────────────────────────────────────────────
 -- Seed: minimal 30-KC skill tree for the 6-week pilot
 -- Subjects: Chinese reading, English reading, Math
 -- ────────────────────────────────────────────────────────────

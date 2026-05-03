@@ -89,6 +89,12 @@ The internal design language becomes spatial and architectural — consistent ac
 | A printed worksheet | A Card |
 | The feedback report | The Debrief |
 | Student's frontier KCs | The Landing |
+| A print credit | A Leaf |
+| A creative contribution (drawing, comic, story scan) | An Exhibit |
+| Parent-facing view of a student's creative work | The Gallery |
+| Aggregated creative themes used for task personalization | Interest profile |
+
+The Leaf name earns its place: an atrium has plants; plants grow leaves; students grow knowledge. Earning a Leaf by completing a Card and spending it to grow a new one closes the metaphor without moralizing. It is age-appropriate, easy to explain to a 7-year-old, and gives teachers a concrete vocabulary for the eco-first print policy ("you need a Leaf to print your next Card").
 
 These are internal terms, not necessarily UI copy. Having them consistent from day one prevents the drift where the backend calls it a "node", the UI calls it a "skill", the teacher dashboard calls it a "topic", and new contributors spend a week just learning the vocabulary.
 

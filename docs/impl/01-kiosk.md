@@ -25,9 +25,12 @@ checkin ──(QR scan / name select)──▶ chat ──(submit button)──�
 **Current state:** local message list, no backend  
 **Target:**
 - On load: `GET /api/skill-graph/tasks/next/:studentId` → show the Docent's opening message with today's task
+- **Leaf balance** displayed top-right: `🌿 N Leaves` — updates in real time after earn/spend events
 - User messages → `POST /api/skill-graph/chat` (wraps Claude claude-sonnet-4-6 with student context)
 - Docent responses include: hint, encouragement, or "I think you're ready — print your Card!"
 - When a Card is ready: `POST /api/worksheet/generate` → trigger browser print dialog
+  - If `leaf_balance < 1`, show zero-balance state instead of print button: *"You're out of Leaves. Turn in your Card to earn one!"* (Docent voice line + on-screen message)
+  - If print succeeds, Docent says: *"Here comes your Card! You've got [N] Leaves left."*
 - Voice: capture mic → Whisper STT → append as user message → TTS Docent response
 
 ### 3. Scan-submit (`src/modes/ScanSubmit.tsx`)
@@ -36,7 +39,11 @@ checkin ──(QR scan / name select)──▶ chat ──(submit button)──�
 - Camera stream (via `getUserMedia`) with "Capture" button (or auto-detect paper edges)
 - On capture: `POST /api/evaluator/submit` with `{ scan, studentId, taskId }`
 - Loading state ≤ 30 seconds
-- On success: show Debrief summary on screen + trigger Debrief PDF print
+- On success:
+  - Show Debrief summary on screen (digital-first — always)
+  - Docent says: *"Great work! You just earned a Leaf. Ready to print your next Card?"*
+  - Leaf balance updates in the UI (`+1` animation)
+  - Optional print button for Debrief: *"Print your Debrief (free)"* — 0 Leaves, explicit opt-in
 
 ## Component plan
 
@@ -44,12 +51,13 @@ checkin ──(QR scan / name select)──▶ chat ──(submit button)──�
 App
 ├── modes/
 │   ├── CheckIn      (badge QR scan, fallback name list)
-│   ├── Chat         (message thread + Docent widget)
-│   └── ScanSubmit   (camera capture + debrief display)
+│   ├── Chat         (message thread + Docent widget + Leaf balance)
+│   └── ScanSubmit   (camera capture + debrief display + Leaf earn animation)
 └── components/
     ├── DebriefCard  (quality tiers per question, summary)
     ├── RadarChart   (mastery visualization — recharts or d3)
-    └── QRScanner    (jsQR or zxing-js wrapper)
+    ├── QRScanner    (jsQR or zxing-js wrapper)
+    └── LeafBalance  (🌿 N Leaves badge — shown in Chat and ScanSubmit headers)
 ```
 
 ## Styling conventions (match BHCS portal)

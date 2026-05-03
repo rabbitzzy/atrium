@@ -16,6 +16,7 @@ The closest commercial analog is **Squirrel AI's physical learning centers** in 
 - **Short sessions, high turnover.** Students rotate through. Session state must persist across visits, but each session must be productive in 20–40 minutes.
 - **BHCS portal already exists.** This product is a satellite — student profiles, parent visibility, and balance/credit live in the existing portal (Supabase, repo `rabbitzzy/bhcs`). Skill state is the **new** thing here.
 - **Trust matters more than autonomy.** Teachers and parents must be able to inspect everything: what the AI assigned, what the student submitted, what the AI graded, and why. Treat the system as a teacher's transparent assistant, not a black-box tutor.
+- **Paper is a resource, not a commodity.** The printer is shared and each sheet carries a real cost — financial, environmental, and pedagogical. Students earn the right to print their next Card by submitting the current one. This is not a friction tax; it is a flywheel gate that prevents waste, rewards completion, and communicates environmental values to children and families. Every design decision touching the printer must respect this. See `/docs/05-eco-design.md` for the full model.
 
 ## Domain model (the nouns)
 
@@ -34,6 +35,9 @@ A discrete kiosk visit. Has: student ID, timestamp, list of tasks attempted, tra
 ### Feedback Report
 The chess.com-style artifact. NOT a grade. A structured object with: per-question quality tier (e.g. `mastered / shaky / needs-help / not-yet`), the misconception or error pattern detected (if any), one or two specific suggestions framed at the student's level, and the system's planned next task. Persisted to the student's profile and visible to parents/teachers.
 
+### Leaf (Print Credit)
+The unit that gates paper printing. Earning one Leaf requires submitting a completed Card (scan → AI evaluation, any quality tier). Spending one Leaf prints the next Card. Students start each enrollment period with 2 Leaves to bootstrap their first sessions. Debriefs are always digital-first — shown on screen, never costing a Leaf — because re-engagement is worth the occasional paper. Teachers can grant bonus Leaves for exceptional work. The word "Leaf" is age-appropriate, plant-growth-themed, and consistent with the Atrium spatial vocabulary. See the full Leaf economy in `/docs/05-eco-design.md`.
+
 ## The flywheel (the verbs)
 
 ```
@@ -41,7 +45,7 @@ The chess.com-style artifact. NOT a grade. A structured object with: per-questio
         ↓
 [2. Plan task]      → AI picks KCs at the student's frontier
         ↓
-[3. Print worksheet] → physical paper with QR scan code
+[3. Print Card]     → spends 1 Leaf; blocked if balance = 0; physical paper with QR scan code
         ↓
 [4. Student works]  → may chat with AI (voice/keyboard) for clarification mid-task
         ↓
@@ -49,9 +53,11 @@ The chess.com-style artifact. NOT a grade. A structured object with: per-questio
         ↓
 [6. AI evaluates]    → multimodal LLM transcribes + grades against rubric
         ↓
-[7. Generate report] → concise feedback to student + full context to portal
+[7. Generate Debrief] → shown on screen (digital-first); printed only on explicit request
         ↓
 [8. Update tree]     → BKT update; mastery probabilities shift
+        ↓
+[8b. Award Leaf]     → student earns 1 Leaf for submitting; unlocks next print
         ↓
 [9. Plan next task]  → loop back to step 2
 ```
@@ -91,6 +97,7 @@ These are defaults to revisit, not commitments.
 - **Not a homework-help chatbot.** Khanmigo and ChatGPT already do this. We're a structured loop with paper artifacts in the middle.
 - **Not a full LMS.** No gradebook, no parent-teacher messaging, no scheduling. Those live in the BHCS portal. We push events to it; we don't replicate it.
 - **Not high-stakes assessment.** AI grading is good enough for formative feedback (per recent research) but not summative. Don't market it as a test administrator.
+- **Not a paper dispenser.** The printer is not a vending machine and printing is not the reward. Completing work is the reward; printing is the mechanism. Never add a feature that lets a student print without having submitted something first — that is a regressive step regardless of how convenient it feels.
 
 ## Integration points with existing BHCS systems
 
@@ -107,6 +114,7 @@ These are defaults to revisit, not commitments.
 - **Q-matrix** — a matrix mapping items (questions) to KCs. Standard in psychometrics.
 - **Frontier** — KCs near a student's current mastery edge: not too easy, not too hard. The sweet spot for assigning tasks.
 - **Radar chart** — visualization of mastery across N skill dimensions. Aimchess does this well for chess; we want the same for academics.
+- **Leaf** — the print-credit unit. Earned by submitting a completed Card; spent to print the next Card. Named for the plants in an atrium; fits the growth metaphor and communicates eco-values to children without moralizing.
 
 ## Open questions to resolve in week 1
 
@@ -116,6 +124,7 @@ These are defaults to revisit, not commitments.
 4. How long should an AI evaluation take from scan to printed feedback? Target: under 30 seconds. If it's longer, students will walk away.
 5. Where does the AI's voice persona come from? Define it. Friendly, encouraging, mildly playful, never sarcastic. Bilingual. Probably named.
 6. **Teacher trust and onboarding.** Traditional teachers need a trust runway — a phased path from full review of every AI evaluation (auditor) to flagged-cases-only review (collaborator) to asynchronous monitoring at scale (multiplier). The teacher-facing dashboard, override/feedback loop, and rubric authoring surface are load-bearing features, not polish. See `/docs/03-teacher-direction.md` for the full model and open questions specific to teacher onboarding.
+7. **Eco metrics and parent visibility.** What's the right way to surface paper-saved stats to parents without it feeling performative? The parent portal could show "your child earned X Leaves this semester" alongside skill progress. But if eco stats feel like a substitute for academic substance, they erode trust. Decide on the balance before Phase 3.
 
 ## References
 

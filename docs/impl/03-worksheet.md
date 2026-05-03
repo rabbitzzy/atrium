@@ -14,6 +14,11 @@ The PDF has a fixed layout so the evaluator can align answer regions determinist
 Input: { studentId, taskId, kcIds[], difficulty }
          │
          ▼
+0. Check leaf_balance for studentId via skill-graph service
+   → If balance < 1: return 402 { error: "insufficient_leaves", balance: 0 }
+   → If balance ≥ 1: continue
+         │
+         ▼
 1. Call Claude claude-sonnet-4-6 with cached system prompt
    → JSON: [{number, prompt_en, prompt_zh, answerLines, expectedAnswerType}]
          │
@@ -21,10 +26,14 @@ Input: { studentId, taskId, kcIds[], difficulty }
 2. Generate QR code encoding { studentId, taskId } as DataMatrix / QR
          │
          ▼
-3. Render HTML template (fixed layout)
+3. Render HTML template (fixed layout, 3–5 problems per page)
          │
          ▼
 4. Launch Playwright headless Chromium → print to PDF (A4)
+         │
+         ▼
+5. Deduct 1 Leaf from studentId; log print_event { type: "spend", amount: 1 }
+   → If PDF delivery fails (printer error), issue { type: "refund", amount: 1 }
          │
          ▼
 Output: PDF buffer (streaming response)
@@ -37,6 +46,7 @@ Output: PDF buffer (streaming response)
 │ ATRIUM                          [QR: 80×80]  │
 │ Student: [id]  Task: [uuid]                  │
 │ Subject: [label_en] / [label_zh]  Difficulty │
+│                              🌿 Leaf earned on submit │
 ├──────────────────────────────────────────────┤
 │ 1. [problem prompt EN]                       │
 │    [problem prompt ZH]                       │
@@ -47,11 +57,13 @@ Output: PDF buffer (streaming response)
 │    ___________________________________________│
 │    ___________________________________________│
 │                                              │
-│ (max 5 problems per page)                    │
+│ (3–5 problems per page; never print a mostly-blank Card) │
 └──────────────────────────────────────────────┘
 ```
 
 Answer lines are sized consistently: 28px tall, full width. The evaluator uses the QR code to fetch the rubric and maps answer regions by line index.
+
+The small "🌿 Leaf earned on submit" footer line is a reminder to the student that returning this Card earns them their next print credit. Keep it small — it is a cue, not a lecture.
 
 ## LLM problem generation — prompt design
 
