@@ -1,6 +1,9 @@
 # Docs — Index
 
-Context documents for the Atrium project. These are for understanding *why* — design rationale, research, pedagogy. For *how* (service specs, API routes, implementation checklists), see `/impl/`.
+Context documents for the Atrium project. These are for understanding *why* — design rationale, research, pedagogy.
+
+For *what we decided to build* (user stories, PRD, tech spec), see `/product/`.
+For *how* (service specs, API routes, implementation checklists), see `/impl/`.
 
 - [brand/naming-rationale.md](./brand/naming-rationale.md) — Why "Atrium"; the naming system (Blueprint, Docent, Leaf, Exhibit, etc.)
 - [pedagogy/teacher-direction.md](./pedagogy/teacher-direction.md) — Teacher trust arc: Observer → Collaborator → Multiplier; dashboard requirements

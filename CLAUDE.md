@@ -82,7 +82,7 @@ A worker queue between #3 and #4 (something simple — Inngest, Trigger.dev, or 
 
 These are defaults to revisit, not commitments.
 
-- **LLM for evaluation & generation:** Claude Sonnet 4.6 or Opus 4.7 via the Anthropic API. Strong at structured output, good at vision, and you already work with the API. Have a Gemini Flash fallback for cost.
+- **LLM for evaluation & generation:** Gemini API (current). Gemini Flash / Pro for evaluation and generation — active API key in use. Claude Sonnet 4.6 / Opus 4.7 is the longer-term option once an Anthropic key is provisioned.
 - **Math handwriting OCR:** Pix2Text (open source, free Mathpix alternative, supports Chinese natively) for the cheap path. Mathpix API for the accurate path. Or just send the cropped image to a multimodal LLM and skip OCR — the research (see /docs/research/paper-interaction.md) shows ~97–99% transcription accuracy from Claude/Gemini/GPT-4o on clean handwriting.
 - **Knowledge tracing:** pyBKT for the v1 student model. Defer DKT/pyKT until you have ≥10K interaction logs.
 - **Voice:** Whisper (STT) + ElevenLabs or OpenAI TTS, kid-friendly voice. Mute the mic on idle for privacy (per the Merlyn Mind voice-privacy paper — children's voices in shared spaces is a real concern).
