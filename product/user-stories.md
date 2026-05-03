@@ -7,6 +7,24 @@
 
 ---
 
+## The flywheel illustrated
+
+Each row is one step in the student session loop. Hardware shown throughout: shared kiosk (flat-panel monitor · keyboard · IPEVO V4K Pro document camera · printer). Illustrations are Miyazaki-influenced sketch style — see `tools/illustrate.ts` to regenerate.
+
+| Step | Illustration | Who | What happens | Key constraint |
+|:---:|---|:---:|---|---|
+| **1 · Bootstrap eval** | <img src="../docs/assets/flywheel/01-bootstrap-eval.png" width="280"> | Mei (student) | First-ever visit. Student checks in at the kiosk. System runs a short diagnostic to build the initial skill map (radar chart) across Math, Reading, Writing, Art, Science, Chinese. | Must complete in one short session. Radar chart is shown on screen — not printed. |
+| **2 · Plan task** | <img src="../docs/assets/flywheel/02-plan-task.png" width="280"> | System | AI selects the next KC from the student's frontier — skills in the 0.3–0.8 mastery band. The Docent surfaces the selection as a simple screen: "Next Task" + Print button. Student reads and confirms; no typing required. | Selection is transparent. Student and teacher can always see which KC was chosen and why. |
+| **3 · Print Card** | <img src="../docs/assets/flywheel/03-print-card.png" width="280"> | Mei | Student presses Print. System deducts 1 Leaf from balance. Printer outputs a letter-size worksheet: five arithmetic problems, blank answer boxes, QR code in header. Student collects the paper. | Blocked if Leaf balance = 0. Paper is not printed speculatively — it costs a Leaf. |
+| **4 · Student works** | <img src="../docs/assets/flywheel/04-student-works.png" width="280"> | Mei | Student takes the worksheet to any school desk and works through the problems with a pencil. May return to the kiosk keyboard to ask the Docent a clarifying question mid-task. | No device required. The paper is the artifact. Voice input is Phase 3. |
+| **5 · Scan submission** | <img src="../docs/assets/flywheel/05-scan-submission.png" width="280"> | Mei | Student returns to the kiosk and places the completed worksheet flat on the counter, centered under the IPEVO V4K Pro document camera. Camera captures a top-down image. Monitor confirms the capture. | Paper must be flat and within the camera frame. No holding up. Target capture time: under 3 seconds. |
+| **6 · AI evaluates** | <img src="../docs/assets/flywheel/06-ai-evaluates.png" width="280"> | System | Scanned image is sent to the submission evaluator. Gemini multimodal model reads each answer box against the rubric and returns a structured result: per-question quality tier + misconception if any. | Target: under 30 seconds end-to-end. Student waits at the kiosk. No re-scan needed for low-confidence results — flag for teacher review instead. |
+| **7 · Debrief** | <img src="../docs/assets/flywheel/07-generate-debrief.png" width="280"> | Parent | Debrief is shown on the kiosk screen (digital-first, always free). Parent also receives it in the BHCS portal. Phone view shows a simple per-question checklist: colored dot per row (green = Mastered, amber = Shaky, red = Needs help). | Debrief is not a grade. Teacher retains override authority. Printing the Debrief costs 0 Leaves but requires explicit opt-in. |
+| **8 · Update Blueprint** | <img src="../docs/assets/flywheel/08-update-tree.png" width="280"> | System + Parent | BKT model updates mastery probabilities for the targeted KC(s). The student's radar chart (Floor plan) shifts. Parent sees the updated chart on their phone — one segment larger, labeled with the subject. | Mastery never drops below 0 in a single session. Low-confidence evaluations widen the confidence band rather than shifting the mean. |
+| **9 · Award Leaf** | <img src="../docs/assets/flywheel/09-award-leaf.png" width="280"> | Mei | Student earns 1 Leaf for submitting a completed Card (regardless of score). Leaf balance increments on screen. The Docent confirms the next task is ready. Student can print the next Card immediately. | Leaf is awarded for submission, not for correctness — avoids penalising struggle. Loop returns to step 2. |
+
+---
+
 ## Personas
 
 ### Student — "Mei" (age 7, 2nd grade)

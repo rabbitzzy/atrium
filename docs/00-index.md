@@ -5,6 +5,7 @@ Context documents for the Atrium project. These are for understanding *why* — 
 For *what we decided to build* (user stories, PRD, tech spec), see `/product/`.
 For *how* (service specs, API routes, implementation checklists), see `/impl/`.
 
+- [architecture-overview.md](./architecture-overview.md) — Full system topology: hardware → kiosk → API → backend; all user flows with sequence diagrams; trust boundaries
 - [brand/naming-rationale.md](./brand/naming-rationale.md) — Why "Atrium"; the naming system (Blueprint, Docent, Leaf, Exhibit, etc.)
 - [pedagogy/teacher-direction.md](./pedagogy/teacher-direction.md) — Teacher trust arc: Observer → Collaborator → Multiplier; dashboard requirements
 - [pedagogy/eco-design.md](./pedagogy/eco-design.md) — Leaf economy, print-gate design, digital-first defaults, eco branding

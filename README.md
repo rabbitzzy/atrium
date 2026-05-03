@@ -1,18 +1,33 @@
 # Atrium
 
-A self-serve AI learning hub for Bright Horizon Chinese School. Students rotate through a shared kiosk — scanner, monitor, printer, microphone — and get a personalized loop: assess → assign → print → work → submit → reflect → re-plan.
+A self-serve AI learning hub for Bright Horizon Chinese School. Students rotate through a shared kiosk — scanner, monitor, printer — and get a personalized loop: assess → assign → print → work → submit → reflect → re-plan.
 
 For full context on what we're building and why, read `CLAUDE.md` first.
 
 ## The flywheel
 
+```mermaid
+graph LR
+    A[Bootstrap eval] --> B[Plan task]
+    B --> C["Print Card<br/>costs 1 Leaf"]
+    C --> D[Student works]
+    D --> E["Scan submission<br/>earns 1 Leaf"]
+    E --> F[AI evaluates]
+    F --> G[Debrief on screen]
+    G --> H[Update Blueprint]
+    H --> B
 ```
-Bootstrap eval → Plan task → Print Card (costs 1 Leaf)
-      ↑                                      ↓
-Update Blueprint ← AI evaluates ← Scan submission (earns 1 Leaf)
-      ↑                  ↓
-      └────── Debrief shown on screen ───────┘
-```
+
+## User stories
+
+| | | |
+|:---:|:---:|:---:|
+| <img src="docs/assets/flywheel/01-bootstrap-eval.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/02-plan-task.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/03-print-card.png" width="220" height="220" style="object-fit:cover"> |
+| First visit — AI builds the initial skill map | AI picks the next task from the student's frontier | Student spends a Leaf to print their worksheet |
+| <img src="docs/assets/flywheel/04-student-works.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/05-scan-submission.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/06-ai-evaluates.png" width="220" height="220" style="object-fit:cover"> |
+| Student completes the worksheet at their desk | Completed paper placed under the document camera | AI grades the scan against the rubric |
+| <img src="docs/assets/flywheel/07-generate-debrief.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/08-update-tree.png" width="220" height="220" style="object-fit:cover"> | <img src="docs/assets/flywheel/09-award-leaf.png" width="220" height="220" style="object-fit:cover"> |
+| Parent reviews per-question feedback on their phone | Parent sees the updated skill radar on their phone | Student earns a Leaf — the loop restarts |
 
 ## Repo layout
 
@@ -76,7 +91,7 @@ Copy `.env.example` → `.env` and fill in your Gemini API key and Supabase cred
 
 - **LLM:** Gemini API (active) — Flash for cost paths, Pro for evaluation quality
 - **Student model:** pyBKT (Bayesian Knowledge Tracing); upgrade to DKT/pyKT after ≥10K logs
-- **Voice:** Whisper STT + TTS (bilingual, mic muted on idle)
+- **Voice:** Deferred — not a v1 requirement
 - **Frontend:** React + Vite + TypeScript, inline styles, DM Sans font
 - **Backend:** Node/TypeScript (skill-graph, worksheet), Python FastAPI (evaluator)
 - **Database:** Supabase Postgres

@@ -31,7 +31,7 @@ checkin ──(QR scan / name select)──▶ chat ──(submit button)──�
 - When a Card is ready: `POST /api/worksheet/generate` → trigger browser print dialog
   - If `leaf_balance < 1`, show zero-balance state instead of print button: *"You're out of Leaves. Turn in your Card to earn one!"* (Docent voice line + on-screen message)
   - If print succeeds, Docent says: *"Here comes your Card! You've got [N] Leaves left."*
-- Voice: capture mic → Whisper STT → append as user message → TTS Docent response
+- Voice (Phase 3): capture mic → Whisper STT → append as user message → TTS Docent response
 
 ### 3. Scan-submit (`src/modes/ScanSubmit.tsx`)
 **Current state:** file input → stub fetch  
@@ -69,4 +69,4 @@ App
 ## Accessibility for elementary-aged users
 - Minimum font size: 16px; action labels 18px+
 - All buttons have explicit `aria-label` when icon-only
-- Voice input toggle visible and labeled in both EN and ZH
+- Voice input toggle: Phase 3

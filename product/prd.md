@@ -32,7 +32,7 @@ Bright Horizon Chinese School students attend weekend sessions without personal 
 | 1. Bootstrap eval | Initial placement assigns mastery priors across the seed KC tree |
 | 2. Task planning | `nextTask` selects KCs at the student's frontier (not too easy, not too hard) |
 | 3. Print Card | Worksheet PDF generated with QR header; costs 1 Leaf; blocked at 0 |
-| 4. Student works | Paper; may ask Docent for hints via voice or keyboard |
+| 4. Student works | Paper; may ask Docent for hints via keyboard (voice deferred to Phase 3) |
 | 5. Scan submission | Camera captures completed Card; QR decoded to student + task |
 | 6. AI evaluation | Multimodal LLM grades against rubric; structured output |
 | 7. Debrief | Shown on screen (digital-first); printable on request (0 Leaves) |
@@ -95,10 +95,10 @@ Bright Horizon Chinese School students attend weekend sessions without personal 
 - Printable on explicit student request; 0 Leaves
 - Persisted to session record; visible to teacher and parent
 
-### 8. Voice / keyboard chat (Docent)
-- Student can ask questions mid-task by voice or keyboard
+### 8. Keyboard chat (Docent) — voice deferred to Phase 3
+- Student can ask questions mid-task by keyboard
 - Docent uses Socratic pattern: "what have you tried?" before giving hints — never gives direct answers
-- Voice: Whisper STT + bilingual TTS; mic muted on idle (privacy)
+- Voice (Whisper STT + bilingual TTS; mic muted on idle): Phase 3
 - Docent persona: friendly, encouraging, mildly playful, never sarcastic; bilingual
 
 ### 9. Teacher dashboard

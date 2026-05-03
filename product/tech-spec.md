@@ -13,16 +13,20 @@
 
 Four services connected by HTTP and a lightweight worker queue. The kiosk is a thin client — all intelligence lives in the backend services.
 
-```
-[Kiosk — React SPA]
-       │  HTTP
-       ├──────────► [skill-graph :3001]  ←──► Supabase (Postgres)
-       │                                         │
-       ├──────────► [worksheet   :3002]  ────────┘
-       │
-       └──────────► [evaluator   :3003]  ──► LLM API (Claude / Gemini)
-                          │
-                    [worker queue]  ──► skill-graph (state update callback)
+```mermaid
+graph TD
+    Kiosk["Kiosk — React SPA"]
+
+    Kiosk -->|HTTP| SG["skill-graph :3001"]
+    Kiosk -->|HTTP| WS["worksheet :3002"]
+    Kiosk -->|HTTP| EV["evaluator :3003"]
+
+    SG <-->|read / write| DB[("Supabase Postgres")]
+    WS -->|read / write| DB
+
+    EV -->|multimodal eval + gen| LLM["LLM API<br/>Gemini Flash / Pro"]
+    EV -->|state update callback| Queue["worker queue"]
+    Queue -->|POST /attempts| SG
 ```
 
 ### Monorepo layout
@@ -207,7 +211,7 @@ Thin client. Three modes that match the flywheel steps.
 | Mode | Trigger | Functionality |
 |------|---------|---------------|
 | Check-in | Landing screen | QR badge scan → load student state |
-| Chat | During session | Voice (Whisper STT + TTS) or keyboard; Docent persona; Leaf balance visible |
+| Chat | During session | Keyboard; Docent persona; Leaf balance visible (voice STT + TTS: Phase 3) |
 | Scan | Submit Card button | Camera capture → POST to evaluator → display Debrief |
 
 **UI conventions**
@@ -218,10 +222,10 @@ Thin client. Three modes that match the flywheel steps.
 - Zero-balance state: amber `#c8963e` indicator; Docent message in Chat mode
 - No heavy state — kiosk is a thin client; state lives in skill-graph
 
-**Voice privacy**
+**Voice privacy (Phase 3 — when voice is enabled)**
 
 - Mic muted on idle (Merlyn Mind pattern — children's voices in shared spaces)
-- No persistent audio recording; STT transcript only
+- No persistent audio recording; STT transcript only; raw audio discarded immediately
 
 ---
 
@@ -236,7 +240,7 @@ Thin client. Three modes that match the flywheel steps.
 | Scan alignment | Fixed-template overlay (Gradescope pattern) | Robust to camera angle; answer regions at fixed coordinates | Never — don't invent an alternative |
 | DB | Supabase (Postgres) | Already used by BHCS portal; no new infra | Never for v1 |
 | Worker queue | Postgres-backed queue (simple) | Already have Postgres; avoids Inngest/Trigger.dev dependency in v1 | Job volume > 1K/day → Inngest |
-| Voice STT | Whisper | Open source; bilingual; good accuracy | ElevenLabs or OpenAI TTS for voice out |
+| Voice STT | Whisper (Phase 3) | Open source; bilingual; good accuracy — deferred from v1 | Phase 3 start → add ElevenLabs or OpenAI TTS |
 | Frontend | React + Vite | BHCS portal convention | Never |
 | KC taxonomy | Common Core (math), Core Knowledge (general), Hanzi frequency (Chinese) | Standard starting points; no licensing issues | When teachers author their own KC extensions |
 
@@ -245,7 +249,7 @@ Thin client. Three modes that match the flywheel steps.
 ## Security and privacy boundaries
 
 - **No PII in Atrium.** Student names, contact info, and auth credentials live only in the BHCS portal. Atrium stores only `student_id` (a portal-issued opaque ID).
-- **No persistent audio.** Microphone input is transcribed on the fly; raw audio is discarded.
+- **No persistent audio (Phase 3).** When voice is enabled: microphone input transcribed on the fly; raw audio discarded immediately.
 - **Teacher review before parent visibility.** Session evaluations with `needs_teacher_review: true` are not pushed to the parent portal until a teacher approves or the review window expires (async).
 - **Leaf events are append-only.** No deletion from `print_events`. Refunds are logged as a separate event type, not by modifying the original spend record.
 
