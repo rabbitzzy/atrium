@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "illustrate": "tsx illustrate.ts"
+    "illustrate": "tsx illustrate.ts",
+    "oauth": "tsx google-oauth.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.0.0",
