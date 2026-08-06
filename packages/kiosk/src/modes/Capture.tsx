@@ -50,7 +50,8 @@ const KINDS: { id: Kind; label: string; labelZh: string; icon: string; blurb: st
 
 interface CaptureResponse {
   captureId: string
-  driveUrl: string
+  fileUrl: string
+  storageBackend: 'drive' | 'local'
   kind: Kind
   ocrStatus: 'ok' | 'failed' | 'skipped'
   ocrError: string | null
@@ -295,8 +296,8 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       {phase === 'done' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <ResultCard result={result} />
-          <a href={result.driveUrl} target="_blank" rel="noreferrer" style={driveLink}>
-            🗂️ Open original in Google Drive
+          <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
+            🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}
           </a>
           <button onClick={again} style={bigBtn}>Capture Another</button>
           <button onClick={onDone} style={ghostBtn}>Done</button>

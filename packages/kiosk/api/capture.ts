@@ -2,7 +2,7 @@
  * POST /api/capture — the ingestion endpoint.
  *
  * Order of operations matters and is deliberate:
- *   1. Upload the image to Drive
+ *   1. Write the image to the storage backend
  *   2. Insert the row (status: pending)
  *   3. Run the pipeline
  *   4. Update the row with the result
@@ -15,7 +15,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { atrium } from './_lib/db'
-import { uploadCapture } from './_lib/drive'
+import { storeCapture } from './_lib/storage'
 import { CAPTURE_KINDS, runPipeline, type CaptureKind } from './_lib/pipelines'
 
 interface CaptureBody {
@@ -67,8 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const db = atrium()
 
   try {
-    // 1. Pixels first.
-    const file = await uploadCapture({
+    // 1. Pixels first, wherever CAPTURE_STORAGE points.
+    const file = await storeCapture({
       bytes: image,
       filename: safeFilename(studentName, kind, mimeType),
       mimeType,
@@ -82,8 +82,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         student_id: studentId,
         student_name: studentName,
         kind,
-        drive_file_id: file.fileId,
-        drive_url: file.url,
+        storage_backend: file.backend,
+        storage_id: file.id,
+        storage_url: file.url,
         mime_type: mimeType,
         bytes: image.length,
         ocr_status: 'pending',
@@ -114,7 +115,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       captureId,
-      driveUrl: file.url,
+      fileUrl: file.url,
+      storageBackend: file.backend,
       kind,
       ocrStatus: outcome.status,
       ocrError: outcome.error,

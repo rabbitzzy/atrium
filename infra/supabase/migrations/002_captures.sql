@@ -21,12 +21,15 @@ create table captures (
   -- What kind of thing was captured. Drives which pipeline runs.
   kind          text not null check (kind in ('worksheet', 'chess', 'doodle')),
 
-  -- Where the original image lives. Drive is the system of record for pixels;
-  -- we only keep pointers.
-  drive_file_id text not null,
-  drive_url     text not null,
-  mime_type     text not null default 'image/jpeg',
-  bytes         int  not null,
+  -- Where the original image lives. The storage backend is the system of
+  -- record for pixels; this table only keeps pointers. storage_id is
+  -- backend-specific — a Drive file id, or a path relative to the local root —
+  -- so storage_backend is what tells you how to interpret it.
+  storage_backend text not null check (storage_backend in ('drive', 'local')),
+  storage_id      text not null,
+  storage_url     text not null,
+  mime_type       text not null default 'image/jpeg',
+  bytes           int  not null,
 
   -- Pipeline output. Shape depends on kind:
   --   worksheet -> { questions: [...], overall_quality, summary_en, summary_zh }

@@ -108,13 +108,16 @@ export interface UploadedFile {
 }
 
 /**
- * Upload an image and return a pointer to it.
+ * Upload an image to Drive and return a pointer to it.
+ *
+ * Reached through storage.ts rather than called directly, so the pipeline
+ * stays backend-agnostic.
  *
  * Uses Drive's multipart upload (metadata + bytes in one request), which is
  * the right choice under ~5MB. The kiosk downscales before sending, so
  * captures land well inside that.
  */
-export async function uploadCapture(args: {
+export async function uploadToDrive(args: {
   bytes: Buffer
   filename: string
   mimeType: string
