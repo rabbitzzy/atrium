@@ -17,6 +17,29 @@ interface Props {
 
 type Phase = 'setup' | 'live' | 'uploading' | 'done' | 'error'
 
+/**
+ * Camera discovery is its own state machine. Collapsing these into "no
+ * cameras listed" leaves an operator staring at an empty dropdown and a dead
+ * button with nothing to act on — each case has a different fix.
+ */
+type CameraState = 'probing' | 'ready' | 'denied' | 'none' | 'failed'
+
+const CAMERA_HELP: Record<Exclude<CameraState, 'ready' | 'probing'>, string> = {
+  denied:
+    'Chrome blocked camera access. Click the camera icon in the address bar, allow access, then retry.',
+  none: 'No camera detected. Check that the document camera is plugged in, then retry.',
+  failed:
+    'Still waiting on camera permission. Look for the permission prompt in the address bar and choose Allow, then retry.',
+}
+
+/**
+ * getUserMedia neither resolves nor rejects while a permission prompt sits
+ * unanswered, so without a deadline the setup screen can hang on "Looking for
+ * cameras…" indefinitely — the exact dead end this state machine exists to
+ * prevent.
+ */
+const PROBE_TIMEOUT_MS = 12_000
+
 type Kind = 'worksheet' | 'chess' | 'doodle'
 
 const KINDS: { id: Kind; label: string; labelZh: string; icon: string; blurb: string }[] = [
@@ -43,6 +66,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [phase, setPhase] = useState<Phase>('setup')
   const [cameras, setCameras] = useState<Camera[]>([])
   const [camera, setCamera] = useState<Camera | null>(null)
+  const [camState, setCamState] = useState<CameraState>('probing')
   const [kind, setKind] = useState<Kind>('worksheet')
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -55,17 +79,31 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   useEffect(() => () => stopCamera(), [stopCamera])
 
   // Enumerate on mount so the operator sees real device names immediately.
-  useEffect(() => {
-    listCameras()
-      .then((found) => {
-        setCameras(found)
-        setCamera(preferredCamera(found))
-      })
-      .catch((err) => {
-        setErrMsg(`Camera access failed: ${(err as Error).message}`)
-        setPhase('error')
-      })
+  // Exposed as a callback so the failure states can offer a retry rather than
+  // forcing a page reload.
+  const probeCameras = useCallback(async () => {
+    setCamState('probing')
+    try {
+      const found = await Promise.race([
+        listCameras(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), PROBE_TIMEOUT_MS),
+        ),
+      ])
+      setCameras(found)
+      setCamera(preferredCamera(found))
+      setCamState(found.length > 0 ? 'ready' : 'none')
+    } catch (err) {
+      // NotAllowedError is a blocked permission; NotFoundError is no hardware.
+      // They look identical in the UI otherwise, and have different fixes.
+      const name = (err as Error).name
+      setCamState(name === 'NotAllowedError' ? 'denied' : name === 'NotFoundError' ? 'none' : 'failed')
+    }
   }, [])
+
+  useEffect(() => {
+    void probeCameras()
+  }, [probeCameras])
 
   async function goLive(target: Camera) {
     try {
@@ -164,16 +202,32 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <section>
             <label style={sectionLabel}>Camera</label>
-            <select
-              value={camera?.deviceId ?? ''}
-              onChange={(e) => setCamera(cameras.find((c) => c.deviceId === e.target.value) ?? null)}
-              style={select}
-            >
-              {cameras.map((c) => (
-                <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
-              ))}
-            </select>
-            <p style={hint}>Pick the overhead document camera, not the built-in webcam.</p>
+
+            {camState === 'probing' && <p style={{ ...hint, margin: 0 }}>Looking for cameras…</p>}
+
+            {camState === 'ready' && (
+              <>
+                <select
+                  value={camera?.deviceId ?? ''}
+                  onChange={(e) => setCamera(cameras.find((c) => c.deviceId === e.target.value) ?? null)}
+                  style={select}
+                >
+                  {cameras.map((c) => (
+                    <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
+                  ))}
+                </select>
+                <p style={hint}>Pick the overhead document camera, not the built-in webcam.</p>
+              </>
+            )}
+
+            {camState !== 'probing' && camState !== 'ready' && (
+              <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
+                <p style={{ margin: 0, fontSize: 14, color: '#8a6a00' }}>{CAMERA_HELP[camState]}</p>
+                <button onClick={() => void probeCameras()} style={{ ...ghostBtn, marginTop: 10 }}>
+                  Retry
+                </button>
+              </div>
+            )}
           </section>
 
           <section>
@@ -203,9 +257,9 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           <button
             onClick={() => camera && goLive(camera)}
             disabled={!camera}
-            style={{ ...bigBtn, opacity: camera ? 1 : 0.5 }}
+            style={{ ...bigBtn, opacity: camera ? 1 : 0.5, cursor: camera ? 'pointer' : 'not-allowed' }}
           >
-            📷 Start Camera
+            {camState === 'ready' ? '📷 Start Camera' : '📷 Camera unavailable'}
           </button>
         </div>
       )}
