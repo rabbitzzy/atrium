@@ -9,6 +9,7 @@ import {
   type Camera,
 } from '../lib/camera'
 import { PAPER, PAPER_FOR_KIND, cropRegion, type Orientation } from '../lib/paper'
+import { FOCUS_WARN_BELOW } from '../lib/focus'
 
 interface Props {
   student: Student
@@ -72,6 +73,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [kind, setKind] = useState<Kind>('worksheet')
   const [orientation, setOrientation] = useState<Orientation>('portrait')
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
+  const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
@@ -126,6 +128,19 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
       rememberCamera(target)
+
+      // A track can end without the page knowing: the camera is unplugged, or
+      // another app claims it. Without this the preview silently freezes on a
+      // black frame and Capture stores it — a broken capture that looks like a
+      // successful one.
+      const [videoTrack] = stream.getVideoTracks()
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          setCamState('none')
+          setPhase('setup')
+        }
+      }
+
       setPhase('live')
     } catch (err) {
       setErrMsg(`Could not open ${target.label}: ${(err as Error).message}`)
@@ -153,6 +168,10 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       stopCamera()
     }
 
+    // Warn, never block: a blurry capture still gets stored and OCR'd, because
+    // a threshold that refuses real work is worse than a soft image.
+    setSoftFocus(frame.focus.chosen < FOCUS_WARN_BELOW ? frame.focus.chosen : null)
+
     try {
       const res = await fetch('/api/capture', {
         method: 'POST',
@@ -168,6 +187,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
             orientation,
             rect,
             via: frame.via,
+            focus: frame.focus,
             source: { width: frame.sourceWidth, height: frame.sourceHeight },
             output: { width: frame.width, height: frame.height },
           },
@@ -186,6 +206,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   }
 
   function again() {
+    setSoftFocus(null)
     setResult(null)
     setErrMsg(null)
     setPhase('setup')
@@ -361,6 +382,15 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
 
       {phase === 'done' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {softFocus !== null && (
+            <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
+              <strong style={{ color: '#8a6a00', fontSize: 14 }}>This looks out of focus</strong>
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: '#8a6a00' }}>
+                Saved anyway, but the reading may be unreliable. Let the camera
+                settle for a moment, then capture again.
+              </p>
+            </div>
+          )}
           <ResultCard result={result} />
           <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
             🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}

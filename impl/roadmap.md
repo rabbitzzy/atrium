@@ -80,10 +80,18 @@ Goal: 6-week pilot ready.
       nullable `is_worksheet` (or a `not-a-worksheet` quality tier) to the
       response schema and give the kiosk a "this doesn't look like a worksheet
       — try again?" state. Reproduced 2026-08-05 against `gemini-2.5-flash`.
-- [x] ~~Capture at full sensor resolution~~ — done. `takePhoto()` reads the
-      sensor rather than the preview buffer, giving 3840×3104 even when the
-      preview negotiates down to VGA. Combined with page cropping, effective
-      resolution on the work went from ~90 DPI to ~218 DPI.
+- [x] ~~Capture at full sensor resolution~~ — done, then partly walked back.
+      `takePhoto()` does give 3840×3104 where the preview gives 640×480, but it
+      does not wait for autofocus to converge and measured **~34× less sharp**
+      (tiled Laplacian p90: 48 vs 1646). Resolution and sharpness are
+      independent and optimising the first cost the second. The pipeline now
+      scores both candidates and keeps the sharper one.
+- [ ] **Focus is the real capture bottleneck, not resolution.** The OKIOCAM
+      exposes no `focusMode` / `focusDistance` through Chrome, so AF cannot be
+      driven or locked from the app — only waited out. Worth testing: a settle
+      delay before `takePhoto()`, and whether the camera has a physical focus
+      control. Reference scores on this station: crisp text ~12000, 2px
+      gaussian blur ~50, good preview capture ~1650.
 - [ ] **Verify `takePhoto()` on the production Chromebox.** It is Chromium-only
       and driver-dependent; the canvas fallback exists but silently costs ~6x
       linear resolution, and `crop_json.via` is the only signal that it fired.

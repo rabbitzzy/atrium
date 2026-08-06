@@ -7,6 +7,8 @@
  * paper — so device selection is required, not a nicety.
  */
 
+import { focusScore } from './focus'
+
 const REMEMBERED_KEY = 'atrium.camera.label'
 
 export interface Camera {
@@ -98,39 +100,67 @@ export interface CapturedFrame {
   sourceHeight: number
   /** Which path produced the pixels — worth recording, since they differ ~6x. */
   via: 'photo' | 'preview'
+  /** Focus score of the chosen source, and of the one rejected. */
+  focus: { chosen: number; photo: number | null; preview: number | null }
 }
 
 /**
- * Get the best available still from a live track.
+ * Get the best available still from a live track — measured, not assumed.
  *
- * ImageCapture.takePhoto() reads the sensor rather than the preview buffer, and
- * on the OKIOCAM that is the difference between 3840x3104 and 640x480 — it
- * returns full resolution even when the preview stream has negotiated down to
- * VGA, which it does unpredictably on macOS. grabFrame() is no help here; it
- * reads the same preview buffer the canvas path does.
+ * There are two sources and neither reliably wins:
  *
- * Falls back to the video element because ImageCapture is Chromium-only, and
- * a capture at low resolution beats no capture at all.
+ *   takePhoto() reads the sensor, giving 3840x3104 where the preview gives
+ *   640x480 — but it does not wait for autofocus to converge, and on this
+ *   station it measured ~34x less sharp than the preview. More pixels of a
+ *   blurrier page is not a better capture.
+ *
+ *   The preview buffer is lower resolution but reflects whatever autofocus has
+ *   actually settled on.
+ *
+ * So take both and keep whichever is sharper. That costs one extra takePhoto
+ * and two cheap focus scores, and it means the right answer on the production
+ * Chromebox is discovered there rather than inherited from a macOS measurement.
  */
 async function grabSource(
   video: HTMLVideoElement,
   track: MediaStreamTrack | null,
-): Promise<{ source: CanvasImageSource; width: number; height: number; via: 'photo' | 'preview' }> {
+): Promise<{
+  source: CanvasImageSource
+  width: number
+  height: number
+  via: 'photo' | 'preview'
+  focus: { photo: number | null; preview: number | null }
+}> {
+  const preview = {
+    source: video as CanvasImageSource,
+    width: video.videoWidth,
+    height: video.videoHeight,
+  }
+  const previewScore = preview.width ? focusScore(preview.source, preview.width, preview.height) : 0
+
   if (track && 'ImageCapture' in window) {
     try {
       const blob = await new ImageCapture(track).takePhoto()
       const bitmap = await createImageBitmap(blob)
-      return { source: bitmap, width: bitmap.width, height: bitmap.height, via: 'photo' }
+      const photoScore = focusScore(bitmap, bitmap.width, bitmap.height)
+
+      if (photoScore >= previewScore) {
+        return {
+          source: bitmap,
+          width: bitmap.width,
+          height: bitmap.height,
+          via: 'photo',
+          focus: { photo: photoScore, preview: previewScore },
+        }
+      }
+      bitmap.close()
+      return { ...preview, via: 'preview', focus: { photo: photoScore, preview: previewScore } }
     } catch {
       // Some drivers advertise ImageCapture and then refuse takePhoto.
     }
   }
-  return {
-    source: video,
-    width: video.videoWidth,
-    height: video.videoHeight,
-    via: 'preview',
-  }
+
+  return { ...preview, via: 'preview', focus: { photo: null, preview: previewScore } }
 }
 
 /**
@@ -150,7 +180,7 @@ export async function captureFrame(
   crop?: { x: number; y: number; width: number; height: number },
   maxEdge = 2400,
 ): Promise<CapturedFrame> {
-  const { source, width, height, via } = await grabSource(video, track)
+  const { source, width, height, via, focus } = await grabSource(video, track)
   if (!width || !height) throw new Error('Camera produced an empty frame')
 
   // Crop in normalized space rather than pixels, because the photo and the
@@ -183,5 +213,6 @@ export async function captureFrame(
     sourceWidth: width,
     sourceHeight: height,
     via,
+    focus: { chosen: (via === 'photo' ? focus.photo : focus.preview) ?? 0, ...focus },
   }
 }

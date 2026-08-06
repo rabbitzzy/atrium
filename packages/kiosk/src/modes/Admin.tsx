@@ -19,7 +19,7 @@ interface Capture {
   kind: 'worksheet' | 'chess' | 'doodle'
   storage_backend: 'local' | 'drive'
   storage_url: string
-  crop_json: { paper?: string; orientation?: string; output?: { width: number; height: number }; source?: { width: number; height: number } } | null
+  crop_json: { paper?: string; orientation?: string; via?: string; focus?: { chosen: number; photo: number | null; preview: number | null }; output?: { width: number; height: number }; source?: { width: number; height: number } } | null
   ocr_json: unknown
   ocr_status: 'pending' | 'ok' | 'failed' | 'skipped'
   ocr_error: string | null
@@ -129,6 +129,15 @@ export default function Admin() {
                         <>
                           <dt>paper</dt>
                           <dd>{c.crop_json.paper} · {c.crop_json.orientation}</dd>
+                          {c.crop_json.focus && (
+                            <>
+                              <dt>focus</dt>
+                              <dd style={{ color: c.crop_json.focus.chosen < 250 ? '#c04010' : '#1a7a4a' }}>
+                                {c.crop_json.focus.chosen} via {c.crop_json.via}
+                                {' '}(photo {c.crop_json.focus.photo ?? '—'} / preview {c.crop_json.focus.preview ?? '—'})
+                              </dd>
+                            </>
+                          )}
                           <dt>pixels</dt>
                           <dd>
                             {c.crop_json.source?.width}×{c.crop_json.source?.height} sensor →{' '}
