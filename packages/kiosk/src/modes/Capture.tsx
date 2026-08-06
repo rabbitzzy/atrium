@@ -8,6 +8,7 @@ import {
   startStream,
   type Camera,
 } from '../lib/camera'
+import { PAPER, PAPER_FOR_KIND, cropRegion, type Orientation } from '../lib/paper'
 
 interface Props {
   student: Student
@@ -69,8 +70,15 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [camera, setCamera] = useState<Camera | null>(null)
   const [camState, setCamState] = useState<CameraState>('probing')
   const [kind, setKind] = useState<Kind>('worksheet')
+  const [orientation, setOrientation] = useState<Orientation>('portrait')
+  const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
+
+  const paper = PAPER_FOR_KIND[kind]!
+  // One rect drives both the on-screen guide and the actual crop, so what the
+  // student lines the page up against is exactly what gets stored.
+  const guide = frameSize ? cropRegion(paper, orientation, frameSize.w, frameSize.h) : null
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -130,17 +138,20 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     const canvas = canvasRef.current
     if (!video || !canvas) return
 
+    const rect = cropRegion(paper, orientation, video.videoWidth, video.videoHeight)
+    setPhase('uploading')
+
     let frame
     try {
-      frame = captureFrame(video, canvas)
+      // Grab before releasing the camera — takePhoto() needs a live track.
+      frame = await captureFrame(video, canvas, streamRef.current?.getVideoTracks()[0] ?? null, rect)
     } catch (err) {
       setErrMsg((err as Error).message)
       setPhase('error')
       return
+    } finally {
+      stopCamera()
     }
-
-    stopCamera()
-    setPhase('uploading')
 
     try {
       const res = await fetch('/api/capture', {
@@ -152,6 +163,14 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           studentId: student.id,
           studentName: student.name,
           kind,
+          crop: {
+            paper,
+            orientation,
+            rect,
+            via: frame.via,
+            source: { width: frame.sourceWidth, height: frame.sourceHeight },
+            output: { width: frame.width, height: frame.height },
+          },
         }),
       })
       if (!res.ok) {
@@ -187,21 +206,40 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         <button onClick={onCheckOut} style={ghostBtn}>Check out</button>
       </header>
 
-      {/* Video element must stay mounted so the ref survives phase changes. */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{
-          display: phase === 'live' ? 'block' : 'none',
-          width: '100%',
-          borderRadius: 12,
-          background: '#000',
-          maxHeight: 460,
-          objectFit: 'contain',
-        }}
-      />
+      {/*
+        Video element must stay mounted so the ref survives phase changes.
+        No object-fit here on purpose: letterboxing would offset the guide from
+        the actual frame, and a crop guide that lies about what gets captured
+        is worse than none. Letting the element take the video's own aspect
+        keeps overlay percentages exact.
+      */}
+      <div style={{ position: 'relative', display: phase === 'live' ? 'block' : 'none' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={(e) =>
+            setFrameSize({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
+          }
+          style={{ display: 'block', width: '100%', borderRadius: 12, background: '#000' }}
+        />
+        {guide && (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${guide.x * 100}%`,
+              top: `${guide.y * 100}%`,
+              width: `${guide.width * 100}%`,
+              height: `${guide.height * 100}%`,
+              border: '2px solid rgba(255,255,255,0.9)',
+              borderRadius: 4,
+              boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </div>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/*
@@ -228,9 +266,34 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
 
       {phase === 'live' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <p style={{ ...hint, textAlign: 'center', margin: 0 }}>
-            Place the page flat under the camera. Keep all four corners in frame.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <p style={{ ...hint, margin: 0 }}>
+              Line the page up inside the frame — {PAPER[paper].label}
+            </p>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {(['portrait', 'landscape'] as const).map((o) => (
+                <button
+                  key={o}
+                  onClick={() => setOrientation(o)}
+                  title={o}
+                  style={{
+                    ...ghostBtn,
+                    padding: '4px 10px',
+                    fontSize: 13,
+                    borderColor: orientation === o ? '#1a1a2e' : '#d0cdc8',
+                    color: orientation === o ? '#1a1a2e' : '#888',
+                  }}
+                >
+                  {o === 'portrait' ? '▯' : '▭'}
+                </button>
+              ))}
+            </div>
+            {frameSize && (
+              <span style={{ fontSize: 12, color: '#bbb' }}>
+                sensor {frameSize.w}×{frameSize.h}
+              </span>
+            )}
+          </div>
 
           {/* Choosing the kind while the page is already framed collapses two
               screens into one — aim and decide are the same moment. */}

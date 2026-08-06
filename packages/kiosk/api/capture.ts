@@ -24,6 +24,7 @@ interface CaptureBody {
   studentId?: string
   studentName?: string
   kind?: string
+  crop?: unknown
 }
 
 const EXTENSIONS: Record<string, string> = {
@@ -87,6 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         storage_url: file.url,
         mime_type: mimeType,
         bytes: image.length,
+        crop_json: body.crop ?? null,
         ocr_status: 'pending',
       })
       .select('id')

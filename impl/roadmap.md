@@ -80,13 +80,21 @@ Goal: 6-week pilot ready.
       nullable `is_worksheet` (or a `not-a-worksheet` quality tier) to the
       response schema and give the kiosk a "this doesn't look like a worksheet
       — try again?" state. Reproduced 2026-08-05 against `gemini-2.5-flash`.
-- [ ] **Capture at full sensor resolution.** `ImageCapture.takePhoto()` on the
-      OKIOCAM returns 3840×3104 JPEG at ~536KB — comfortably inside Vercel's
-      body limit — while the current canvas path downscales to a 2000px long
-      edge, discarding roughly 70% of linear resolution. Likely matters most
-      for Chinese characters (radicals, stroke order) and messy K-5
-      handwriting. Needs a canvas fallback: `takePhoto()` support is uneven
-      across platforms, and the production kiosk is Chrome OS, not macOS.
+- [x] ~~Capture at full sensor resolution~~ — done. `takePhoto()` reads the
+      sensor rather than the preview buffer, giving 3840×3104 even when the
+      preview negotiates down to VGA. Combined with page cropping, effective
+      resolution on the work went from ~90 DPI to ~218 DPI.
+- [ ] **Verify `takePhoto()` on the production Chromebox.** It is Chromium-only
+      and driver-dependent; the canvas fallback exists but silently costs ~6x
+      linear resolution, and `crop_json.via` is the only signal that it fired.
+      Worth an explicit check on Chrome OS before the pilot.
+- [ ] **Preview resolution is unstable on macOS.** The same constraints
+      negotiated 3840×3104, 3840×2160, and 640×480 across sessions with no code
+      change; `min:` constraints throw `OverconstrainedError` while
+      `getCapabilities()` still advertises the full sensor. `takePhoto()` masks
+      this for captures, but the on-screen guide is drawn against whatever the
+      preview gives, so a VGA preview makes the guide coarse. Suspect a UVC
+      driver state issue — a replug appeared to clear it.
 
 ## Open decisions (resolve in Phase 0/1)
 

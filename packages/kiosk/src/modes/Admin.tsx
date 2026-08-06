@@ -19,6 +19,7 @@ interface Capture {
   kind: 'worksheet' | 'chess' | 'doodle'
   storage_backend: 'local' | 'drive'
   storage_url: string
+  crop_json: { paper?: string; orientation?: string; output?: { width: number; height: number }; source?: { width: number; height: number } } | null
   ocr_json: unknown
   ocr_status: 'pending' | 'ok' | 'failed' | 'skipped'
   ocr_error: string | null
@@ -124,6 +125,17 @@ export default function Admin() {
                       <dt>id</dt><dd>{c.id}</dd>
                       <dt>student_id</dt><dd>{c.student_id}</dd>
                       <dt>storage</dt><dd>{c.storage_backend}</dd>
+                      {c.crop_json && (
+                        <>
+                          <dt>paper</dt>
+                          <dd>{c.crop_json.paper} · {c.crop_json.orientation}</dd>
+                          <dt>pixels</dt>
+                          <dd>
+                            {c.crop_json.source?.width}×{c.crop_json.source?.height} sensor →{' '}
+                            {c.crop_json.output?.width}×{c.crop_json.output?.height} stored
+                          </dd>
+                        </>
+                      )}
                       {c.ocr_error && <><dt>error</dt><dd style={{ color: '#c04010' }}>{c.ocr_error}</dd></>}
                     </dl>
                     <pre style={pre}>

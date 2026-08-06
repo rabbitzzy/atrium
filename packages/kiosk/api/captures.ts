@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     let query = atrium()
       .from('captures')
-      .select('id, student_id, student_name, kind, storage_backend, storage_url, ocr_json, ocr_status, ocr_error, ocr_ms, captured_at')
+      .select('id, student_id, student_name, kind, storage_backend, storage_url, crop_json, ocr_json, ocr_status, ocr_error, ocr_ms, captured_at')
       .order('captured_at', { ascending: false })
       .limit(limit)
 

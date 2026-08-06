@@ -31,6 +31,12 @@ create table captures (
   mime_type       text not null default 'image/jpeg',
   bytes           int  not null,
 
+  -- What was cropped out of the camera frame before storing and OCR'ing:
+  -- { paper, orientation, rect{x,y,width,height}, source{w,h}, output{w,h} }.
+  -- Kept because OCR quality questions are usually framing questions, and
+  -- without this you cannot tell a bad transcription from a clipped page.
+  crop_json       jsonb,
+
   -- Pipeline output. Shape depends on kind:
   --   worksheet -> { questions: [...], overall_quality, summary_en, summary_zh }
   --   chess     -> { metadata: {...}, moves: [{n, w, b}, ...] }   (chess-karma shape)
