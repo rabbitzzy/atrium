@@ -92,8 +92,13 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         ),
       ])
       setCameras(found)
-      setCamera(preferredCamera(found))
+      const chosen = preferredCamera(found)
+      setCamera(chosen)
       setCamState(found.length > 0 ? 'ready' : 'none')
+      // Go live immediately. A student walks up with paper in hand; making
+      // them press "start camera" before they can even see whether the page
+      // is framed is a tap that buys nothing.
+      if (chosen) void goLive(chosen)
     } catch (err) {
       // NotAllowedError is a blocked permission; NotFoundError is no hardware.
       // They look identical in the UI otherwise, and have different fixes.
@@ -199,79 +204,77 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+      {/*
+        Setup only renders while the camera is unavailable. Once a device is
+        found the stream starts on its own and this collapses into the live
+        view, so the student never presses a button just to see the lens.
+      */}
       {phase === 'setup' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <section>
-            <label style={sectionLabel}>Camera</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {camState === 'probing' && <p style={{ ...hint, margin: 0 }}>Looking for cameras…</p>}
 
-            {camState === 'probing' && <p style={{ ...hint, margin: 0 }}>Looking for cameras…</p>}
-
-            {camState === 'ready' && (
-              <>
-                <select
-                  value={camera?.deviceId ?? ''}
-                  onChange={(e) => setCamera(cameras.find((c) => c.deviceId === e.target.value) ?? null)}
-                  style={select}
-                >
-                  {cameras.map((c) => (
-                    <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
-                  ))}
-                </select>
-                <p style={hint}>Pick the overhead document camera, not the built-in webcam.</p>
-              </>
-            )}
-
-            {camState !== 'probing' && camState !== 'ready' && (
-              <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
-                <p style={{ margin: 0, fontSize: 14, color: '#8a6a00' }}>{CAMERA_HELP[camState]}</p>
-                <button onClick={() => void probeCameras()} style={{ ...ghostBtn, marginTop: 10 }}>
-                  Retry
-                </button>
-              </div>
-            )}
-          </section>
-
-          <section>
-            <label style={sectionLabel}>What are we capturing?</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {KINDS.map((k) => (
-                <button
-                  key={k.id}
-                  onClick={() => setKind(k.id)}
-                  style={{
-                    ...kindBtn,
-                    borderColor: kind === k.id ? '#1a1a2e' : '#d0cdc8',
-                    background: kind === k.id ? '#f4f2ef' : '#fff',
-                  }}
-                >
-                  <span style={{ fontSize: 22 }}>{k.icon}</span>
-                  <span style={{ flex: 1, textAlign: 'left' }}>
-                    <span style={{ fontWeight: 600 }}>{k.label}</span>{' '}
-                    <span style={{ color: '#888', fontSize: 14 }}>{k.labelZh}</span>
-                    <span style={{ display: 'block', fontSize: 13, color: '#999', marginTop: 2 }}>{k.blurb}</span>
-                  </span>
-                </button>
-              ))}
+          {/* 'ready' is momentarily reachable here, between the probe
+              resolving and goLive() flipping the phase. */}
+          {camState !== 'probing' && camState !== 'ready' && (
+            <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
+              <p style={{ margin: 0, fontSize: 14, color: '#8a6a00' }}>{CAMERA_HELP[camState]}</p>
+              <button onClick={() => void probeCameras()} style={{ ...ghostBtn, marginTop: 10 }}>
+                Retry
+              </button>
             </div>
-          </section>
-
-          <button
-            onClick={() => camera && goLive(camera)}
-            disabled={!camera}
-            style={{ ...bigBtn, opacity: camera ? 1 : 0.5, cursor: camera ? 'pointer' : 'not-allowed' }}
-          >
-            {camState === 'ready' ? '📷 Start Camera' : '📷 Camera unavailable'}
-          </button>
+          )}
         </div>
       )}
 
       {phase === 'live' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ ...hint, textAlign: 'center', margin: 0 }}>
             Place the page flat under the camera. Keep all four corners in frame.
           </p>
+
+          {/* Choosing the kind while the page is already framed collapses two
+              screens into one — aim and decide are the same moment. */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            {KINDS.map((k) => (
+              <button
+                key={k.id}
+                onClick={() => setKind(k.id)}
+                style={{
+                  ...kindBtn,
+                  flex: 1,
+                  flexDirection: 'column',
+                  gap: 2,
+                  padding: '10px 8px',
+                  borderColor: kind === k.id ? '#1a1a2e' : '#d0cdc8',
+                  background: kind === k.id ? '#f4f2ef' : '#fff',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{k.icon}</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{k.label}</span>
+                <span style={{ color: '#999', fontSize: 12 }}>{k.blurb}</span>
+              </button>
+            ))}
+          </div>
+
           <button onClick={shoot} style={bigBtn}>📸 Capture {KINDS.find((k) => k.id === kind)!.label}</button>
-          <button onClick={again} style={ghostBtn}>Back</button>
+
+          {cameras.length > 1 && (
+            <select
+              value={camera?.deviceId ?? ''}
+              onChange={(e) => {
+                const next = cameras.find((c) => c.deviceId === e.target.value)
+                if (next) {
+                  setCamera(next)
+                  void goLive(next)
+                }
+              }}
+              style={{ ...select, fontSize: 13, padding: '8px 12px' }}
+            >
+              {cameras.map((c) => (
+                <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 

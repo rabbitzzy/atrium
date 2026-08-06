@@ -70,6 +70,24 @@ Goal: 6-week pilot ready.
 - [ ] **Eco:** Parent portal: Leaf count line in session report ("earned 1 Leaf · 7 total this semester")
 - [ ] **Eco:** End-of-semester eco summary for parents (Cards printed, submission rate)
 
+## Backlog (found while building, not yet scheduled)
+
+- [ ] **Worksheet pipeline has no "this isn't a worksheet" guard.** Handed a
+      photo of a child's drawing, it graded five imaginary questions as
+      `mastered` and wrote a warm summary about creativity. A student who
+      photographs the wrong page therefore gets confident, wrong feedback —
+      worse than an error, because nothing signals it is wrong. Fix: add a
+      nullable `is_worksheet` (or a `not-a-worksheet` quality tier) to the
+      response schema and give the kiosk a "this doesn't look like a worksheet
+      — try again?" state. Reproduced 2026-08-05 against `gemini-2.5-flash`.
+- [ ] **Capture at full sensor resolution.** `ImageCapture.takePhoto()` on the
+      OKIOCAM returns 3840×3104 JPEG at ~536KB — comfortably inside Vercel's
+      body limit — while the current canvas path downscales to a 2000px long
+      edge, discarding roughly 70% of linear resolution. Likely matters most
+      for Chinese characters (radicals, stroke order) and messy K-5
+      handwriting. Needs a canvas fallback: `takePhoto()` support is uneven
+      across platforms, and the production kiosk is Chrome OS, not macOS.
+
 ## Open decisions (resolve in Phase 0/1)
 
 | # | Decision | Options | Default |

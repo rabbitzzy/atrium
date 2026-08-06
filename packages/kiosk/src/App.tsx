@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import Admin from './modes/Admin'
 import CheckIn from './modes/CheckIn'
 import Chat from './modes/Chat'
 import Capture from './modes/Capture'
@@ -9,9 +10,26 @@ export type KioskMode = 'checkin' | 'chat' | 'capture' | 'scan'
 /** nameZh is optional: the BHCS roster carries first/last name only today. */
 export type Student = { id: string; name: string; nameZh?: string }
 
+/**
+ * Hash-based, so the data viewer needs no router dependency and no SPA
+ * rewrite rules — #admin works identically on the dev server and on Vercel.
+ */
+function useIsAdminRoute(): boolean {
+  const [isAdmin, setIsAdmin] = useState(() => window.location.hash.startsWith('#admin'))
+  useEffect(() => {
+    const sync = () => setIsAdmin(window.location.hash.startsWith('#admin'))
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+  return isAdmin
+}
+
 export default function App() {
+  const isAdmin = useIsAdminRoute()
   const [mode, setMode] = useState<KioskMode>('checkin')
   const [student, setStudent] = useState<Student | null>(null)
+
+  if (isAdmin) return <Admin />
 
   function handleCheckIn(s: Student) {
     setStudent(s)
