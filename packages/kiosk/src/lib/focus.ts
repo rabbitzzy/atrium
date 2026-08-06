@@ -7,17 +7,28 @@
  *
  * This exists because resolution and sharpness are independent, and optimising
  * one silently cost us the other: ImageCapture.takePhoto() returns a 3840x3104
- * still where the preview gives 640x480, but measured ~34x less sharp, because
- * the full-resolution sensor read does not wait for autofocus to converge.
- * More pixels of a blurrier image is not a better capture. So the pipeline
- * measures both candidates and keeps the sharper one rather than assuming
- * either path wins — which also means it adapts to whatever the production
- * Chromebox does, instead of inheriting a conclusion drawn on macOS.
+ * still where the preview gives 640x480, but measured ~12x less sharp at
+ * matched render size, because the full-resolution sensor read does not wait
+ * for autofocus to converge.
+ *
+ * Scores are normalised to a fixed working width before tiling. Without that
+ * the metric is scale-dependent — the same image scores 19 / 31 / 57 / 85
+ * rendered at 400 / 640 / 1200 / 1855px — which makes comparing two sources of
+ * different sizes meaningless, and makes any absolute threshold a fiction.
+ * Normalising asks the size-independent question: of these two shots of the
+ * same page, which is better focused?
  */
 
 /** Tile grid used for scoring. Small enough to be cheap, large enough to be stable. */
 const TILE = 160
 const GRID = 5
+
+/**
+ * Every source is resampled to this width before scoring, so scores compare
+ * across a 640px preview and a 3840px still. A small image upscaled to reach it
+ * scores lower, which is correct: it genuinely carries less detail.
+ */
+const WORKING_WIDTH = 1000
 
 /**
  * Score an image source over a tiled grid, returning a high percentile.
@@ -33,6 +44,17 @@ export function focusScore(
   width: number,
   height: number,
 ): number {
+  // Resample to the common working size first — this is what makes scores from
+  // differently-sized sources comparable.
+  const workW = WORKING_WIDTH
+  const workH = Math.max(1, Math.round((WORKING_WIDTH * height) / width))
+  const work = document.createElement('canvas')
+  work.width = workW
+  work.height = workH
+  const workCtx = work.getContext('2d')
+  if (!workCtx) return 0
+  workCtx.drawImage(source, 0, 0, workW, workH)
+
   const canvas = document.createElement('canvas')
   canvas.width = TILE
   canvas.height = TILE
@@ -40,12 +62,12 @@ export function focusScore(
   if (!ctx) return 0
 
   const scores: number[] = []
-  const tileW = width / GRID
-  const tileH = height / GRID
+  const tileW = workW / GRID
+  const tileH = workH / GRID
 
   for (let row = 0; row < GRID; row++) {
     for (let col = 0; col < GRID; col++) {
-      ctx.drawImage(source, col * tileW, row * tileH, tileW, tileH, 0, 0, TILE, TILE)
+      ctx.drawImage(work, col * tileW, row * tileH, tileW, tileH, 0, 0, TILE, TILE)
       const { data } = ctx.getImageData(0, 0, TILE, TILE)
 
       const gray = new Float32Array(TILE * TILE)
@@ -74,12 +96,21 @@ export function focusScore(
 }
 
 /**
- * Below this, a capture is probably not worth OCR'ing.
+ * How much sharper the preview must be before we give up the photo's pixels.
  *
- * Calibrated on this station: crisply rendered text scores ~12000, the same
- * text under a 2px gaussian blur ~50, a good OKIOCAM preview capture ~1650, and
- * a defocused takePhoto ~48. 250 sits well clear of the blurred cases without
- * tripping on sparse pages. Provisional — it warns, it does not block, because
+ * Resolution is worth real quality, so the higher-resolution still wins ties
+ * and near-ties; the preview only takes over when the photo is materially
+ * worse — the defocused-takePhoto case, where the gap was ~12x, not 15%.
+ * Without this the pipeline would reject a sharp 3840x3104 still in favour of
+ * an equally sharp 640x480 preview, which is the opposite of the point.
+ */
+export const PHOTO_FOCUS_TOLERANCE = 0.85
+
+/**
+ * Below this normalised score, a capture is probably not worth OCR'ing.
+ *
+ * Calibrated at the 1000px working width: a defocused takePhoto scores ~45, a
+ * sharp preview several hundred. Provisional, and it warns rather than blocks —
  * a wrong threshold that refuses real work is worse than a soft capture.
  */
-export const FOCUS_WARN_BELOW = 250
+export const FOCUS_WARN_BELOW = 120

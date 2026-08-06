@@ -7,7 +7,7 @@
  * paper — so device selection is required, not a nicety.
  */
 
-import { focusScore } from './focus'
+import { PHOTO_FOCUS_TOLERANCE, focusScore } from './focus'
 
 const REMEMBERED_KEY = 'atrium.camera.label'
 
@@ -110,16 +110,18 @@ export interface CapturedFrame {
  * There are two sources and neither reliably wins:
  *
  *   takePhoto() reads the sensor, giving 3840x3104 where the preview gives
- *   640x480 — but it does not wait for autofocus to converge, and on this
+ *   640x480 — but it does not wait for autofocus to converge, and here
  *   station it measured ~34x less sharp than the preview. More pixels of a
  *   blurrier page is not a better capture.
  *
  *   The preview buffer is lower resolution but reflects whatever autofocus has
  *   actually settled on.
  *
- * So take both and keep whichever is sharper. That costs one extra takePhoto
- * and two cheap focus scores, and it means the right answer on the production
- * Chromebox is discovered there rather than inherited from a macOS measurement.
+ * So take both, score both on a size-normalised metric, and keep the photo
+ * unless it is materially less sharp. Ties and near-ties go to the photo
+ * because its extra pixels are worth real quality — the preview only wins the
+ * genuinely-defocused case. That also means the production Chromebox discovers
+ * its own answer rather than inheriting a macOS measurement.
  */
 async function grabSource(
   video: HTMLVideoElement,
@@ -144,7 +146,7 @@ async function grabSource(
       const bitmap = await createImageBitmap(blob)
       const photoScore = focusScore(bitmap, bitmap.width, bitmap.height)
 
-      if (photoScore >= previewScore) {
+      if (photoScore >= previewScore * PHOTO_FOCUS_TOLERANCE) {
         return {
           source: bitmap,
           width: bitmap.width,
