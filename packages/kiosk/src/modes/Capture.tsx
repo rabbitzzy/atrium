@@ -8,7 +8,15 @@ import {
   startStream,
   type Camera,
 } from '../lib/camera'
-import { PAPER, PAPER_FOR_KIND, cropRegion, type Orientation } from '../lib/paper'
+import {
+  PAGE_UP_DEFAULT,
+  PAPER,
+  PAPER_FOR_KIND,
+  cropRegion,
+  orientationFor,
+  quarterTurnsFor,
+  type PageUp,
+} from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 
 interface Props {
@@ -71,7 +79,9 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [camera, setCamera] = useState<Camera | null>(null)
   const [camState, setCamState] = useState<CameraState>('probing')
   const [kind, setKind] = useState<Kind>('worksheet')
-  const [orientation, setOrientation] = useState<Orientation>('portrait')
+  const [pageUp, setPageUp] = useState<PageUp>(
+    () => (localStorage.getItem('atrium.pageUp') as PageUp | null) ?? PAGE_UP_DEFAULT,
+  )
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
@@ -80,7 +90,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const paper = PAPER_FOR_KIND[kind]!
   // One rect drives both the on-screen guide and the actual crop, so what the
   // student lines the page up against is exactly what gets stored.
-  const guide = frameSize ? cropRegion(paper, orientation, frameSize.w, frameSize.h) : null
+  const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -153,13 +163,19 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     const canvas = canvasRef.current
     if (!video || !canvas) return
 
-    const rect = cropRegion(paper, orientation, video.videoWidth, video.videoHeight)
+    const rect = cropRegion(paper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
     setPhase('uploading')
 
     let frame
     try {
       // Grab before releasing the camera — takePhoto() needs a live track.
-      frame = await captureFrame(video, canvas, streamRef.current?.getVideoTracks()[0] ?? null, rect)
+      frame = await captureFrame(
+        video,
+        canvas,
+        streamRef.current?.getVideoTracks()[0] ?? null,
+        rect,
+        quarterTurnsFor(pageUp),
+      )
     } catch (err) {
       setErrMsg((err as Error).message)
       setPhase('error')
@@ -184,7 +200,8 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           kind,
           crop: {
             paper,
-            orientation,
+            orientation: orientationFor(pageUp),
+            pageUp,
             rect,
             via: frame.via,
             focus: frame.focus,
@@ -291,21 +308,22 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
             <p style={{ ...hint, margin: 0 }}>
               Line the page up inside the frame — {PAPER[paper].label}
             </p>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {(['portrait', 'landscape'] as const).map((o) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 12, color: '#999' }}>page top</span>
+              {([['top','↑'],['right','→'],['bottom','↓'],['left','←']] as const).map(([o, glyph]) => (
                 <button
                   key={o}
-                  onClick={() => setOrientation(o)}
-                  title={o}
+                  onClick={() => { setPageUp(o); localStorage.setItem('atrium.pageUp', o) }}
+                  title={`Top of the page points ${o}`}
                   style={{
                     ...ghostBtn,
-                    padding: '4px 10px',
-                    fontSize: 13,
-                    borderColor: orientation === o ? '#1a1a2e' : '#d0cdc8',
-                    color: orientation === o ? '#1a1a2e' : '#888',
+                    padding: '4px 9px',
+                    fontSize: 14,
+                    borderColor: pageUp === o ? '#1a1a2e' : '#d0cdc8',
+                    color: pageUp === o ? '#1a1a2e' : '#aaa',
                   }}
                 >
-                  {o === 'portrait' ? '▯' : '▭'}
+                  {glyph}
                 </button>
               ))}
             </div>

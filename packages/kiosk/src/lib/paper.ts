@@ -18,6 +18,36 @@
 
 export type Orientation = 'portrait' | 'landscape'
 
+/**
+ * Which way the top of the page points in the camera frame.
+ *
+ * A single control rather than separate orientation and rotation settings: the
+ * student answers one physical question ("which way is up?") and both the crop
+ * shape and the output rotation follow from it.
+ *
+ * Default is sideways, because the frame is landscape (~1.24:1) and a portrait
+ * letter page fits it badly — 55% of the frame area against 84% laid
+ * sideways. Placing the page sideways and rotating the image upright afterward
+ * is ~1.5x the area, i.e. ~1.24x linear resolution, for free.
+ */
+export type PageUp = 'top' | 'right' | 'bottom' | 'left'
+
+export const PAGE_UP_DEFAULT: PageUp = 'right'
+
+export function orientationFor(pageUp: PageUp): Orientation {
+  return pageUp === 'top' || pageUp === 'bottom' ? 'portrait' : 'landscape'
+}
+
+/**
+ * Quarter-turns clockwise needed to bring the page upright.
+ *
+ * Top-points-right needs a counter-clockwise quarter turn, which is three
+ * clockwise ones.
+ */
+export function quarterTurnsFor(pageUp: PageUp): 0 | 1 | 2 | 3 {
+  return pageUp === 'top' ? 0 : pageUp === 'left' ? 1 : pageUp === 'bottom' ? 2 : 3
+}
+
 export interface PaperSize {
   label: string
   /** Inches. */

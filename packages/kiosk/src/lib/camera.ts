@@ -178,6 +178,8 @@ export async function captureFrame(
   track: MediaStreamTrack | null,
   /** Normalized 0–1 crop, applied to whichever source we end up with. */
   crop?: { x: number; y: number; width: number; height: number },
+  /** Quarter-turns clockwise to bring the page upright after cropping. */
+  quarterTurns: 0 | 1 | 2 | 3 = 0,
   maxEdge = 2400,
 ): Promise<CapturedFrame> {
   const { source, width, height, via, focus } = await grabSource(video, track)
@@ -196,12 +198,23 @@ export async function captureFrame(
     : { sx: 0, sy: 0, sw: width, sh: height }
 
   const scale = Math.min(1, maxEdge / Math.max(region.sw, region.sh))
-  canvas.width = Math.round(region.sw * scale)
-  canvas.height = Math.round(region.sh * scale)
+  const drawW = Math.round(region.sw * scale)
+  const drawH = Math.round(region.sh * scale)
+
+  // A quarter turn swaps the output's axes: a sideways letter page cropped to
+  // 2400x1855 is stored as an upright 1855x2400.
+  const swap = quarterTurns % 2 === 1
+  canvas.width = swap ? drawH : drawW
+  canvas.height = swap ? drawW : drawH
 
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Could not get a 2D canvas context')
-  ctx.drawImage(source, region.sx, region.sy, region.sw, region.sh, 0, 0, canvas.width, canvas.height)
+
+  ctx.save()
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate((quarterTurns * Math.PI) / 2)
+  ctx.drawImage(source, region.sx, region.sy, region.sw, region.sh, -drawW / 2, -drawH / 2, drawW, drawH)
+  ctx.restore()
   if (source instanceof ImageBitmap) source.close()
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
