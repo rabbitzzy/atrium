@@ -425,7 +425,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
    * after the shutter use it, which is also why the page gets wider here —
    * a Debrief squeezed into half of 760px reads worse than no split at all.
    */
-  const split = phase === 'uploading' || (phase === 'done' && result !== null && !needsResolve)
+  const split = phase === 'uploading' || (phase === 'done' && result !== null)
 
   return (
     <div style={{ ...page, maxWidth: split ? 1080 : 760 }}>
@@ -692,7 +692,14 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         produces a new result to show and to store.
       */}
       {phase === 'done' && result && needsResolve && app.Resolve && (
-        <app.Resolve result={result.ocr} onResolved={handleResolved} />
+        <div className="capture-split">
+          {/* The page belongs on this screen more than on any other: the
+              question being asked is about the student's own handwriting, and
+              asking someone to recognise what they wrote while their writing
+              is off screen is asking them to work from memory. */}
+          <CapturedShot src={shot} />
+          <app.Resolve result={result.ocr} onResolved={handleResolved} />
+        </div>
       )}
 
       {phase === 'done' && result && !needsResolve && (
