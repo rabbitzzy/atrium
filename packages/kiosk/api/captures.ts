@@ -7,6 +7,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { requireAdmin } from './_lib/admin'
 import { atrium } from './_lib/db'
 import { CAPTURE_KINDS, type CaptureKind } from './_lib/pipelines'
 
@@ -17,6 +18,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Allow', 'GET')
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  if (!requireAdmin(req, res)) return
 
   const studentId = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : undefined
   const kind = typeof req.query['kind'] === 'string' ? req.query['kind'] : undefined

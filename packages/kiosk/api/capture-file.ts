@@ -8,6 +8,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { requireAdmin } from './_lib/admin'
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -25,6 +26,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Allow', 'GET')
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  if (!requireAdmin(req, res)) return
 
   if (activeBackend() !== 'local') {
     return res.status(404).json({ error: 'Local storage is not the active backend' })
