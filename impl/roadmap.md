@@ -70,6 +70,161 @@ Goal: 6-week pilot ready.
 - [ ] **Eco:** Parent portal: Leaf count line in session report ("earned 1 Leaf · 7 total this semester")
 - [ ] **Eco:** End-of-semester eco summary for parents (Cards printed, submission rate)
 
+## Backlog (found while building, not yet scheduled)
+
+### P0 — Captures are unreliably out of focus
+
+Resolution is solved (3840×3104 sensor → ~2000×2400 stored, cropped and
+upright). Focus is not, and it is now the single thing gating usable OCR.
+Deferred deliberately, not forgotten.
+
+**What was measured** (2026-08-06, `~/work/atrium/test-images/worksheet`, same
+page, same camera position, captures minutes apart):
+
+| capture | chosen | photo score | preview score | stored p90 |
+|---|---|---|---|---|
+| 01-49-29 (earliest) | preview | — | — | 1841 |
+| 03-10-50 | photo | **3819** | 365 | 2061 |
+| 03-17-03 | preview | 187 | **1767** | 260 |
+| 03-19-25 | photo | **93** | 81 | 161 |
+
+**Clues, in rough order of usefulness:**
+
+1. *The problem is temporal, not spatial.* A 4×4 tile map of each stored image
+   shows sharp captures peaking in the centre where the page content is
+   (03-10-50: 3456 / 2339 / 2061) and blurred ones **flat across the whole
+   frame** (03-19-25: 54–84, no gradient). A tilted camera or shallow depth of
+   field would show a gradient. A uniform collapse means the whole focus plane
+   is wrong — and it changes between captures on a static scene.
+2. *Both capture paths are affected.* `takePhoto` scored 3819 once and 93
+   twenty minutes later; the preview scored 1767 and 81. So this is the
+   camera's autofocus, not `ImageCapture`. The earlier "takePhoto is blurry"
+   reading was one unlucky sample generalised too far.
+3. *Autofocus almost certainly never settles.* White paper is a low-contrast
+   subject for contrast-detect AF; a hand entering frame to place the page
+   likely re-triggers a hunt that then has nothing to lock onto.
+4. *We cannot drive it.* The OKIOCAM exposes no `focusMode`, `focusDistance`,
+   `exposureMode`, or `torch` through Chrome — verified against
+   `getSupportedConstraints()`. AF can only be waited out or sampled around.
+
+**Approaches worth trying, cheapest first:**
+
+- **Best-of-N burst.** Because the defect is temporal, grab 3–5 frames over
+  ~1.5s and keep the sharpest. This exploits the instability directly and needs
+  no hardware cooperation. Highest expected value.
+- **Settle delay** after the scene stops changing before capturing, so the hunt
+  triggered by a hand leaving frame has time to finish.
+- **Give AF something to lock onto**: a high-contrast fiducial printed on the
+  worksheet (which the Gradescope-style template needs anyway) sitting inside
+  the crop region.
+- **Check the hardware** for a physical AF/MF switch or focus button. A camera
+  locked manually at the desk distance beats anything software can do here.
+
+**Known measurement bug to fix alongside:** the capture-time focus score is
+computed on the *whole uncropped frame*, but what gets stored and OCR'd is the
+cropped page. Desk wood grain is high-frequency texture and can inflate the
+score for an image whose page is soft — 03-17-03 recorded preview 1767 yet its
+stored crop measures 260. Score the crop region, not the frame.
+
+### Other
+
+- [ ] **Worksheet pipeline has no "this isn't a worksheet" guard.** Handed a
+      photo of a child's drawing, it graded five imaginary questions as
+      `mastered` and wrote a warm summary about creativity. A student who
+      photographs the wrong page therefore gets confident, wrong feedback —
+      worse than an error, because nothing signals it is wrong. Fix: add a
+      nullable `is_worksheet` (or a `not-a-worksheet` quality tier) to the
+      response schema and give the kiosk a "this doesn't look like a worksheet
+      — try again?" state. Reproduced 2026-08-05 against `gemini-2.5-flash`.
+- [x] ~~Capture at full sensor resolution~~ — done, then partly walked back.
+      `takePhoto()` does give 3840×3104 where the preview gives 640×480, but it
+      does not wait for autofocus to converge and measured **~34× less sharp**
+      (tiled Laplacian p90: 48 vs 1646). Resolution and sharpness are
+      independent and optimising the first cost the second. The pipeline now
+      scores both candidates and keeps the sharper one.
+- [ ] **Focus is the real capture bottleneck, not resolution.** The OKIOCAM
+      exposes no `focusMode` / `focusDistance` through Chrome, so AF cannot be
+      driven or locked from the app — only waited out. Worth testing: a settle
+      delay before `takePhoto()`, and whether the camera has a physical focus
+      control. Reference scores on this station: crisp text ~12000, 2px
+      gaussian blur ~50, good preview capture ~1650.
+- [ ] **Verify `takePhoto()` on the production Chromebox.** It is Chromium-only
+      and driver-dependent; the canvas fallback exists but silently costs ~6x
+      linear resolution, and `crop_json.via` is the only signal that it fired.
+      Worth an explicit check on Chrome OS before the pilot.
+
+## Ideas (shaped, not scheduled)
+
+### Stream the evaluation instead of blocking on it
+
+Today the kiosk shows a spinner for the whole OCR call — 8–10s of dead screen
+for a child who just pressed a button. The metadata that arrives is useful; the
+wait is the problem, and a progress bar would only make the waiting explicit
+rather than shorter.
+
+Instead, let the Debrief appear as it is generated: text arriving progressively
+is read as *the system working*, and a student who starts reading question 1
+while question 4 is still arriving has effectively waited zero seconds. It also
+turns latency into something we can spend rather than something we must
+minimise — a slower, better model becomes affordable.
+
+Mechanics: Gemini exposes `streamGenerateContent` (SSE). The wrinkle is that
+the pipelines use `response_schema`, so what streams is *partial JSON*, not
+clean prose. Options, in rough order of preference:
+
+1. Stream with an incremental JSON parser and render each `questions[]` element
+   as it closes. Keeps one call and the existing schema.
+2. Two-phase: stream a short plain-text encouragement first, then the
+   structured evaluation. Simplest to build, costs an extra call.
+3. Keep the structured call as-is but stream *something honest* alongside it —
+   the transcription of each answer as it is read. Reads as the system working
+   through the page, which is also true.
+
+Needs a streaming transport from the serverless function to the kiosk (SSE
+works on Vercel). The `captures` row still gets the final structured object, so
+nothing downstream changes.
+
+### Chess: stop at low confidence and let the student unblock
+
+A chess scoresheet has a property worksheets do not: **every move is checkable
+against the rules**. `chess-karma`'s validator already exploits this — its
+three-pass corrector uses board state to resolve `B` vs `b`, missing captures,
+and dropped piece prefixes. What it cannot do is ask a human.
+
+The idea: transcribe until confidence drops below a threshold, then stop and
+ask. Show the confirmed moves on a real board, ask the student about the one
+ambiguous move, and resume from there. Each answer re-anchors the board state,
+which makes every *subsequent* move easier to disambiguate — so one confirmation
+can rescue a long tail of moves, and the student is doing something genuinely
+useful rather than watching a spinner. It is also good chess practice.
+
+Design notes:
+
+- **Do not re-invent the board.** `chessground` (lichess's own board, MIT) or
+  `react-chessboard` (React wrapper, MIT) for rendering; `chess.js` (MIT) for
+  legality and SAN parsing in the browser — it is the JS counterpart to the
+  `python-chess` the validator already uses.
+- **Where validation runs** is the real decision. Porting the three-pass
+  corrector to `chess.js` duplicates working code; calling the Python validator
+  as a service keeps one implementation but adds a deployment. Worth deciding
+  before building either.
+- **Confidence needs a source.** Gemini does not return per-field confidence,
+  so it has to be derived: ask for it in the schema (self-reported, weak), or
+  infer it — a move the validator can only place via its pass-3 fallback is by
+  definition low confidence. The validator's existing `status` field
+  (`ok` / `normalized` / `corrected` / `inferred` / `failed`) is already close
+  to the signal we want.
+- **Bound the interaction.** A scoresheet where every third move needs
+  confirmation is worse than a plain transcription with a "check these" list.
+  Cap the number of prompts, then fall back.
+- [ ] **Preview resolution is unstable on macOS.** The same constraints
+      negotiated 3840×3104, 3840×2160, and 640×480 across sessions with no code
+      change; `min:` constraints throw `OverconstrainedError` while
+      `getCapabilities()` still advertises the full sensor. `takePhoto()` masks
+      this for captures, but the on-screen guide is drawn against whatever the
+      preview gives, so a VGA preview makes the guide coarse. Suspect a UVC
+      driver state issue — a replug appeared to clear it.
+
 ## Open decisions (resolve in Phase 0/1)
 
 | # | Decision | Options | Default |

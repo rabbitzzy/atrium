@@ -58,7 +58,28 @@ IPEVO is the standard document camera brand in US K-12 classrooms. The V4K Pro (
 
 **The catch:** IPEVO is a peripheral. It requires a host computer.
 
-**Verdict:** Correct choice for the scan peripheral. Pair with a host compute device (see below).
+**V4K vs V4K Pro — buy the Pro, and do not confuse the two.** They are separate products and Amazon listings for the plain V4K look nearly identical. Both are 8MP UVC cameras, so both work identically with `getUserMedia()`. The difference that matters to us: **the plain V4K has no light source; the V4K Pro has a built-in LED aimed at the same spot as the lens.** Since ambient light variation is our #1 OCR risk (see design constraints below), the plain V4K reintroduces the exact problem the Pro solves in the box, and you would end up bolting a desk lamp to the station to compensate. The Pro also adds a noise-cancelling mic, which is dead weight in v1 but relevant if voice returns in Phase 3. The plain V4K is fine as a cheap **prototype** unit on a desk with decent room light.
+
+**Verdict:** Correct choice for the scan peripheral. Pair with a host compute device (see below). Buy the **Pro**, not the base V4K, for anything that goes in a classroom.
+
+### OKIOCAM S2 Pro (USB document camera)
+
+Okiolabs is a smaller US-market classroom camera brand. The S2 Pro is 13MP (Sony CMOS, max 3840×3104), UVC-compliant plug-and-play on Windows / Mac / Chrome OS, with a built-in LED light and mic, on a one-piece glass-fiber body with a metal weighted base.
+
+**Why it fits — and where it beats the IPEVO:**
+- **Capture area is 13.6 × 11 in.** This is the strongest technical argument for it and the easiest spec to overlook. Our fixed-template design needs the *whole* letter page in frame — QR header plus all three fiducial corner marks, with margin. A camera that only just covers 8.5 × 11 will clip a corner mark whenever a student sets the paper down slightly off-center, and template registration fails. The extra margin is real insurance against our most annoying classroom failure mode.
+- Built-in light closes the same gap the V4K Pro does.
+- UVC-compliant, so the browser scan UI needs no special integration — same as IPEVO.
+
+**What to ignore on the spec sheet:**
+- **13MP vs 8MP is not a reason to choose it.** 8MP already yields ~290 DPI across a letter page, far beyond what QR decoding and K-5 handwriting need. More pixels over USB 2.0 can make still capture *slower*, working against the sub-30s target.
+- OKIOPoint smart pointer and 180° articulation are live-teaching-demo features. The extra joints are a mild negative — more ways for the camera to drift out of template alignment when a student bumps it.
+
+**The tradeoff:** it loses IPEVO's institutional familiarity. That criterion was over-weighted for our situation — this is a single-site satellite kiosk where we are the IT department, not a district AV purchase going through school procurement. At this price point the repair story for either brand is "buy another one," not "file a ticket."
+
+**Note on sourcing:** Okiolabs hosts its own OKIOCAM-vs-IPEVO comparison page. That is vendor marketing against a competitor, not independent testing — discount it accordingly.
+
+**Verdict:** Acceptable alternative to the V4K Pro, and mildly preferred on capture area. Either is a defensible buy.
 
 ---
 
@@ -90,7 +111,7 @@ IPEVO connects via USB and Chrome OS exposes it as a standard webcam. The Vercel
 |---|---|---|
 | Compute | Any existing Mac or Windows laptop | Kiosk mode: browser fullscreen (F11), tab locked |
 | Camera / scanner | iPhone or existing webcam | For dev iteration — OCR accuracy test |
-| Scan upgrade | IPEVO V4K Pro | Add when testing the actual scan-to-LLM pipeline |
+| Scan upgrade | IPEVO V4K (base model OK here) or OKIOCAM S2 Pro | Add when testing the actual scan-to-LLM pipeline. The light-less base V4K is acceptable at a desk with good room light |
 | Display | Laptop screen | Fine for 1-on-1 testing |
 
 ### Production kiosk (classroom deployment)
@@ -99,8 +120,8 @@ IPEVO connects via USB and Chrome OS exposes it as a standard webcam. The Vercel
 |---|---|---|
 | Compute | ASUS Chromebox 4 or HP Chromebox G3 | ~$220 |
 | Display | 24" 1080p monitor (Dell, LG, HP — any) | ~$130 |
-| Camera / scanner | IPEVO V4K Pro (or Elmo TT-12 for durability) | ~$170–350 |
-| Mount / enclosure | Desk arm for IPEVO + cable management | ~$30 |
+| Camera / scanner | OKIOCAM S2 Pro or IPEVO V4K **Pro** (or Elmo TT-12 for durability) — must have a built-in light | ~$170–350 |
+| Mount / enclosure | Desk anchor for the camera + cable management | ~$30 |
 | **Total** | | **~$550–730 per station** |
 
 Printer is existing school hardware — shared on the network, one per room.
@@ -109,10 +130,11 @@ Printer is existing school hardware — shared on the network, one per room.
 
 ## Key design constraints this hardware imposes
 
-- **Consistent lighting matters.** The IPEVO has a built-in LED ring light — keep it on. Room ambient light variation is the #1 cause of degraded OCR quality. If the kiosk is near a window with strong daylight variation, add a privacy shroud over the scan surface.
-- **Fixed mount is non-negotiable for production.** A camera on a flexible arm that students can knock around will drift out of alignment with the fixed-template coordinates. Use the IPEVO's clamp mount bolted to the desk, or a ceiling/wall mount.
+- **Consistent lighting matters — buy a camera with its own light.** Room ambient light variation is the #1 cause of degraded OCR quality. The IPEVO **V4K Pro** and the OKIOCAM S2 Pro both have a built-in LED aimed at the capture surface; keep it on. The base IPEVO **V4K has no light at all** — do not buy it for a classroom station on the assumption that it does. If the kiosk sits near a window with strong daylight variation, add a privacy shroud over the scan surface regardless.
+- **The camera must frame the full letter page with margin.** Template registration depends on the QR header *and* all three fiducial corner marks being visible in one frame. A capture area that only just covers 8.5 × 11 in will clip a corner the moment a student sets the paper down off-center. Verify the stated capture area before buying — this spec is easy to skip and it is the one that produces confusing intermittent scan failures in the classroom.
+- **Fixed mount is non-negotiable for production.** A camera that students can knock around will drift out of alignment with the fixed-template coordinates. Note that both the IPEVO and OKIOCAM ship with a **weighted base, not a clamp** — weighted is not fixed. Production needs the unit anchored to the desk, or a ceiling/wall mount.
 - **The fixed-template approach (Gradescope-style) tolerates a lot of camera variation.** As long as the QR code is readable and the three fiducial corner marks are visible, the software can re-register the template. Hardware does not need to be millimeter-precise.
-- **Chrome OS kiosk mode does not allow USB device access by default.** The IPEVO must be allowlisted by USB vendor ID in the Google Admin policy. This is one config line in the Admin console, but it must be done.
+- **Chrome OS kiosk mode does not allow USB device access by default.** The camera must be allowlisted by USB vendor ID in the Google Admin policy, whichever brand you buy. This is one config line in the Admin console, but it must be done.
 
 ---
 
@@ -131,3 +153,5 @@ Printer is existing school hardware — shared on the network, one per room.
 ## Open questions
 
 1. **IPEVO vs Elmo for durability.** IPEVO V4K Pro is the budget call; Elmo TT-12 is what a school IT department will respect and be able to repair. If the pilot goes beyond 3 stations, buy one Elmo for comparison.
+2. **OKIOCAM S2 Pro vs IPEVO V4K Pro — decide empirically, not on spec sheets.** Both are UVC, both have a built-in light, both cost about the same. OKIOCAM wins on capture area (13.6 × 11 in), IPEVO wins on brand familiarity with school IT. Neither advantage is decisive on paper. Resolve it by running the same set of ~20 real student worksheets through both and comparing template-registration failure rate and end-to-end scan latency. That test is worth doing once, early — the answer then holds for every station we buy after.
+3. **How much does brand familiarity actually buy us?** The original IPEVO recommendation leaned on "US school IT recognizes it." For a single-site satellite kiosk where we are the IT department, that may be close to worthless. Revisit only if Atrium expands to sites whose own IT staff must support the hardware.

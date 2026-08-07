@@ -6,7 +6,10 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    // The api/ functions are Node, not DOM, and use ESM .js import specifiers
+    // that Vercel's build resolves. Bundler resolution covers both here.
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "api"]
 }

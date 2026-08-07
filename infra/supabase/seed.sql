@@ -1,0 +1,15 @@
+-- Local development seed. Never applied to a deployed database.
+--
+-- Currently empty, and that is not an oversight.
+--
+-- This file used to stand up a fake `students` table, because api/students.ts
+-- read the roster through a Supabase client and locally there was no portal
+-- database to point it at. The roster now comes from the BHCS portal's HTTP
+-- API (packages/kiosk/api/_lib/bhcs.ts), which dev and production both call
+-- the same way, so the fixture had nothing left to serve — and a fake roster
+-- that no code path reads is worse than none at all.
+--
+-- Atrium's own tables come from migrations/ and need no seed data. Add seeds
+-- here only for tables Atrium owns; student profiles will never be among them.
+--
+-- Referenced by config.toml (db.seed.sql_paths), so the file must exist.

@@ -33,7 +33,9 @@ graph LR
 
 ```
 packages/
-  kiosk/          React SPA — check-in, chat (Docent), scan-submit (:5173)
+  kiosk/          React SPA — check-in, chat (Docent), capture (:5173)
+    api/          Vercel serverless functions — capture ingestion, roster
+    src/modes/    Screens, incl. #admin capture viewer (dev)
   skill-graph/    KC graph + BKT student state service (:3001)
   worksheet/      Card PDF generator with QR header (:3002)
   evaluator/      Submission evaluator — Gemini multimodal grading (:3003)
@@ -72,10 +74,33 @@ Internal terms used throughout the codebase and docs. Full rationale in `docs/br
 
 ```bash
 pnpm install
-pnpm -F kiosk dev           # :5173
+cp .env.example .env        # then fill it in — see below
+
+cd infra && supabase start  # local Postgres on :55322, Studio on :55323
+                            # ports are 553xx so the BHCS stack (543xx) can run too
+
+pnpm -F kiosk dev           # :5173 — serves the SPA *and* api/
 pnpm -F skill-graph dev     # :3001
 pnpm -F worksheet dev       # :3002
 ```
+
+`pnpm -F kiosk dev` serves the `api/` functions through a Vite plugin, so the
+kiosk works end to end without the Vercel CLI. `pnpm -F kiosk dev:full` runs
+`vercel dev` instead, when you want to exercise the real serverless runtime.
+
+The kiosk needs at minimum `GEMINI_API_KEY`, `SUPABASE_URL` /
+`SUPABASE_SERVICE_KEY` (paste from `supabase start` output), and `BHCS_API_URL`
+/ `BHCS_API_KEY` for the roster. Captures default to Google Drive; for local
+work set `CAPTURE_STORAGE=local` and a `CAPTURE_LOCAL_DIR`, which needs no
+Google setup at all.
+
+For the Drive backend, run `pnpm --filter @atrium/tools oauth` once — it mints a
+refresh token and creates the root folder, printing both values for `.env`. It
+needs an OAuth client (Web application) with `http://localhost:4321/callback`
+as a redirect URI, and the Drive API enabled on that project.
+
+Browse what's been captured — image, crop metadata, focus scores, raw OCR JSON —
+at `localhost:5173/#admin`.
 
 Python evaluator:
 ```bash
@@ -85,7 +110,7 @@ pip install -r requirements.txt
 uvicorn src.main:app --reload --port 3003
 ```
 
-Copy `.env.example` → `.env` and fill in your Gemini API key and Supabase credentials before starting.
+All services read the repo-root `.env`; see `.env.example` for the full list.
 
 ## Tech stack
 
