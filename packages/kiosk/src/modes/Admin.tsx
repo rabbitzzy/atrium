@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { OcrStatus, StorageBackend } from '@atrium/schema'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
+import { APPS } from '../platform/registry'
 
 /**
  * Dev-only data viewer, reachable at #admin.
@@ -17,8 +19,9 @@ interface Capture {
   id: string
   student_id: string
   student_name: string
-  kind: 'worksheet' | 'chess' | 'doodle'
-  storage_backend: 'local' | 'drive'
+  /** An app id. The viewer shows it verbatim and never branches on it. */
+  kind: string
+  storage_backend: StorageBackend
   storage_url: string
   crop_json: {
     paper?: string
@@ -30,7 +33,7 @@ interface Capture {
     source?: { width: number; height: number }
   } | null
   ocr_json: unknown
-  ocr_status: 'pending' | 'ok' | 'failed' | 'skipped'
+  ocr_status: OcrStatus
   ocr_error: string | null
   ocr_ms: number | null
   captured_at: string
@@ -84,9 +87,9 @@ export default function Admin() {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={control}>
             <option value="">All kinds</option>
-            <option value="worksheet">worksheet</option>
-            <option value="chess">chess</option>
-            <option value="doodle">doodle</option>
+            {APPS.map((a) => (
+              <option key={a.id} value={a.id}>{a.id}</option>
+            ))}
           </select>
           <button onClick={() => void load()} style={control}>Refresh</button>
           <a href="#" style={{ ...control, textDecoration: 'none', color: '#1a6bb5' }}>← Kiosk</a>

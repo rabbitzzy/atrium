@@ -64,8 +64,8 @@ async function driveFetch(url: string, init: RequestInit): Promise<Response> {
 /**
  * Find or create a subfolder of GOOGLE_DRIVE_ROOT_FOLDER_ID.
  *
- * One folder per capture kind (worksheet/, chess/, doodle/) so a teacher can
- * open Drive and browse by category without any Atrium UI.
+ * One folder per capture kind, named for the app that handled it, so a teacher
+ * can open Drive and browse by category without any Atrium UI.
  */
 async function ensureFolder(name: string): Promise<string> {
   const cached = folderCache.get(name)

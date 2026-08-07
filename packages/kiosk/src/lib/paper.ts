@@ -12,9 +12,11 @@
  * OpenCV.js for a problem the physical setup already solves: the camera is
  * fixed-mounted and the paper is one of two known sizes, so the region is
  * knowable in advance. This is the fixed-template argument from
- * docs/research/paper-interaction.md applied to the station rather than the
- * worksheet.
+ * docs/research/paper-interaction.md applied to the station rather than to
+ * what is printed on the page.
  */
+
+import type { PaperId } from '@atrium/schema'
 
 export type Orientation = 'portrait' | 'landscape'
 
@@ -66,16 +68,9 @@ export interface PaperSize {
   height: number
 }
 
-export const PAPER: Record<'letter' | 'halfLetter', PaperSize> = {
+export const PAPER: Record<PaperId, PaperSize> = {
   letter: { label: 'Letter 8.5×11', width: 8.5, height: 11 },
   halfLetter: { label: 'Half letter 5.5×8.5', width: 5.5, height: 8.5 },
-}
-
-/** Which paper each capture kind normally arrives on. */
-export const PAPER_FOR_KIND: Record<string, keyof typeof PAPER> = {
-  worksheet: 'letter',
-  doodle: 'letter',
-  chess: 'halfLetter',
 }
 
 /** Normalized rect, 0–1 relative to the frame. */
@@ -97,7 +92,7 @@ const FILL = 0.94
  * a few percent of sensor.
  */
 export function cropRegion(
-  paper: keyof typeof PAPER,
+  paper: PaperId,
   orientation: Orientation,
   frameWidth: number,
   frameHeight: number,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Student } from '@atrium/schema'
+import type { CaptureResponse, Student } from '@atrium/schema'
 import {
   captureFrame,
   listCameras,
@@ -12,7 +12,6 @@ import {
 } from '../lib/camera'
 import {
   PAPER,
-  PAPER_FOR_KIND,
   cropRegion,
   defaultPageUp,
   orientationFor,
@@ -21,6 +20,7 @@ import {
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { detectPage, type Detection, type Quad } from '../lib/page-detect'
+import { APPS, type AnyCaptureApp } from '../platform/registry'
 
 interface Props {
   student: Student
@@ -53,28 +53,9 @@ const CAMERA_HELP: Record<Exclude<CameraState, 'ready' | 'probing'>, string> = {
  */
 const PROBE_TIMEOUT_MS = 12_000
 
-type Kind = 'worksheet' | 'chess' | 'doodle'
-
 /** Quad as SVG polygon points in a 0–100 viewBox. */
 const quadPoints = (q: Quad): string =>
   [q.tl, q.tr, q.br, q.bl].map((p) => `${p.x * 100},${p.y * 100}`).join(' ')
-
-const KINDS: { id: Kind; label: string; labelZh: string; icon: string; blurb: string }[] = [
-  { id: 'worksheet', label: 'Worksheet', labelZh: '作业', icon: '📝', blurb: 'Graded against a rubric' },
-  { id: 'chess', label: 'Chess notes', labelZh: '棋谱', icon: '♟️', blurb: 'Moves transcribed verbatim' },
-  { id: 'doodle', label: 'Doodle', labelZh: '涂鸦', icon: '🎨', blurb: 'Saved, not graded' },
-]
-
-interface CaptureResponse {
-  captureId: string
-  fileUrl: string
-  storageBackend: 'drive' | 'local'
-  kind: Kind
-  ocrStatus: 'ok' | 'failed' | 'skipped'
-  ocrError: string | null
-  ocrMs: number | null
-  ocr: unknown
-}
 
 export default function Capture({ student, onDone, onCheckOut }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -89,7 +70,12 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [cameras, setCameras] = useState<Camera[]>([])
   const [camera, setCamera] = useState<Camera | null>(null)
   const [camState, setCamState] = useState<CameraState>('probing')
-  const [kind, setKind] = useState<Kind>('worksheet')
+  /*
+   * The whole app, not its id: everything downstream — the crop guide, the
+   * button label, the result view — is a field on it, so there is nothing left
+   * for the platform to look up or branch on.
+   */
+  const [app, setApp] = useState<AnyCaptureApp>(APPS[0])
   /*
    * Which way up the page is, held as an override on top of what the frame
    * implies rather than as a value in its own right.
@@ -109,7 +95,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
-  const paper = PAPER_FOR_KIND[kind]!
+  const paper = app.paper
   const pageUp = pageUpOverride ?? defaultPageUp(frameSize?.w, frameSize?.h)
   // The fallback rectangle, shown only when the page's own edges cannot be
   // found. When they can, the outline below traces the real page instead.
@@ -322,7 +308,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           mimeType: frame.mimeType,
           studentId: student.id,
           studentName: student.name,
-          kind,
+          kind: app.id,
           crop: {
             paper,
             orientation: orientationFor(pageUp),
@@ -518,28 +504,28 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           {/* Choosing the kind while the page is already framed collapses two
               screens into one — aim and decide are the same moment. */}
           <div style={{ display: 'flex', gap: 10 }}>
-            {KINDS.map((k) => (
+            {APPS.map((a) => (
               <button
-                key={k.id}
-                onClick={() => setKind(k.id)}
+                key={a.id}
+                onClick={() => setApp(a)}
                 style={{
                   ...kindBtn,
                   flex: 1,
                   flexDirection: 'column',
                   gap: 2,
                   padding: '10px 8px',
-                  borderColor: kind === k.id ? '#1a1a2e' : '#d0cdc8',
-                  background: kind === k.id ? '#f4f2ef' : '#fff',
+                  borderColor: app.id === a.id ? '#1a1a2e' : '#d0cdc8',
+                  background: app.id === a.id ? '#f4f2ef' : '#fff',
                 }}
               >
-                <span style={{ fontSize: 20 }}>{k.icon}</span>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{k.label}</span>
-                <span style={{ color: '#999', fontSize: 12 }}>{k.blurb}</span>
+                <span style={{ fontSize: 20 }}>{a.icon}</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{a.label}</span>
+                <span style={{ color: '#999', fontSize: 12 }}>{a.blurb}</span>
               </button>
             ))}
           </div>
 
-          <button onClick={shoot} style={bigBtn}>📸 Capture {KINDS.find((k) => k.id === kind)!.label}</button>
+          <button onClick={shoot} style={bigBtn}>📸 Capture {app.label}</button>
 
           {cameras.length > 1 && (
             <select
@@ -578,9 +564,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
           <div style={spinner} />
           <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Saving and reading… 正在保存…</p>
-          <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>
-            {kind === 'doodle' ? 'Just saving this one' : 'Usually 5–20 seconds'}
-          </p>
+          <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>{app.waitHint}</p>
         </div>
       )}
 
@@ -603,7 +587,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               </p>
             </div>
           )}
-          <ResultCard result={result} />
+          <ResultCard app={app} result={result} student={student} />
           <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
             🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}
           </a>
@@ -617,40 +601,24 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
 
 // ── Result rendering ─────────────────────────────────────────────────────────
 
-interface WorksheetOcr {
-  questions: { number: number; quality: string; transcript: string; misconception: string | null; suggestion: string | null }[]
-  overall_quality: string
-  summary_en: string
-  summary_zh: string
-  next_focus: string
-}
-
-interface ChessOcr {
-  metadata: { white: string | null; black: string | null; date: string | null; result: string | null }
-  moves: { n: number; w: string | null; b: string | null }[]
-}
-
-const QUALITY_COLORS: Record<string, { bg: string; color: string }> = {
-  mastered: { bg: '#d4f0e0', color: '#1a7a4a' },
-  shaky: { bg: '#fff3d4', color: '#8a6a00' },
-  'needs-help': { bg: '#ffe0d4', color: '#c04010' },
-  'not-yet': { bg: '#f0f0f0', color: '#666' },
-}
-const qc = (q: string) => QUALITY_COLORS[q] ?? QUALITY_COLORS['not-yet']!
-
-function ResultCard({ result }: { result: CaptureResponse }) {
-  if (result.ocrStatus === 'skipped') {
-    return (
-      <div style={card}>
-        <div style={{ fontSize: 32, marginBottom: 8 }}>🎨</div>
-        <strong>Saved</strong>
-        <p style={{ margin: '6px 0 0', fontSize: 14, color: '#666' }}>
-          Doodles are kept as-is — no grading, no feedback.
-        </p>
-      </div>
-    )
-  }
-
+/**
+ * The platform renders exactly one result state: the one that is true of every
+ * app. Extraction failed, the image is safe, here is why — that is a statement
+ * about the pipeline, not about what was on the paper.
+ *
+ * Everything else is the app's own view. A capture that was never extracted
+ * ('skipped') is not an error and goes there too: the app that declined to
+ * extract is the one that knows what to say about it.
+ */
+function ResultCard({
+  app,
+  result,
+  student,
+}: {
+  app: AnyCaptureApp
+  result: CaptureResponse
+  student: Student
+}) {
   if (result.ocrStatus === 'failed') {
     // The image is already safe in Drive; say so, because that is the thing
     // the operator actually needs to know before deciding whether to re-shoot.
@@ -665,57 +633,7 @@ function ResultCard({ result }: { result: CaptureResponse }) {
     )
   }
 
-  if (result.kind === 'worksheet') {
-    const ocr = result.ocr as WorksheetOcr
-    return (
-      <>
-        <div style={card}>
-          <span style={{ ...qc(ocr.overall_quality), display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
-            {ocr.overall_quality}
-          </span>
-          <p style={{ fontSize: 16, color: '#222', margin: '0 0 8px' }}>{ocr.summary_en}</p>
-          <p style={{ fontSize: 15, color: '#666', margin: 0 }}>{ocr.summary_zh}</p>
-        </div>
-        {ocr.questions.map((q) => (
-          <div key={q.number} style={{ ...card, display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px' }}>
-            <span style={{ ...qc(q.quality), padding: '2px 10px', borderRadius: 16, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              {q.number}. {q.quality}
-            </span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, color: '#222' }}>Wrote: <em>{q.transcript}</em></div>
-              {q.misconception && <div style={{ fontSize: 13, color: '#888', marginTop: 3 }}>{q.misconception}</div>}
-              {q.suggestion && <div style={{ fontSize: 13, color: '#1a6bb5', marginTop: 3 }}>{q.suggestion}</div>}
-            </div>
-          </div>
-        ))}
-      </>
-    )
-  }
-
-  const ocr = result.ocr as ChessOcr
-  return (
-    <div style={card}>
-      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
-        {ocr.metadata.white ?? '?'} vs {ocr.metadata.black ?? '?'}
-      </div>
-      <div style={{ fontSize: 13, color: '#888', marginBottom: 12 }}>
-        {ocr.moves.length} move pairs transcribed{ocr.metadata.result ? ` · ${ocr.metadata.result}` : ''}
-      </div>
-      <div style={{ maxHeight: 260, overflowY: 'auto', fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.7 }}>
-        {ocr.moves.map((m) => (
-          <div key={m.n} style={{ display: 'flex', gap: 10 }}>
-            <span style={{ color: '#aaa', width: 28, textAlign: 'right' }}>{m.n}.</span>
-            <span style={{ width: 76 }}>{m.w ?? '—'}</span>
-            <span>{m.b ?? '—'}</span>
-          </div>
-        ))}
-      </div>
-      <p style={{ margin: '12px 0 0', fontSize: 12, color: '#999' }}>
-        Transcribed verbatim — misspellings are preserved on purpose so the
-        chess-karma validator can correct them against board state.
-      </p>
-    </div>
-  )
+  return <app.ResultView result={result.ocr} student={student} />
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────

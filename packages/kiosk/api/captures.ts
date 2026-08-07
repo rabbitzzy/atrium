@@ -3,13 +3,13 @@
  *
  * Admin/exploration surface: no auth, per the current phase. Filterable by
  * student and kind so you can answer "what has this child submitted" and
- * "show me every chess scoresheet" without opening Drive.
+ * "show me everything one app has handled" without opening Drive.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { requireAdmin } from './_lib/admin'
 import { atrium } from './_lib/db'
-import { CAPTURE_KINDS, type CaptureKind } from './_lib/pipelines'
+import { APP_IDS } from './_lib/registry'
 
 const MAX_LIMIT = 200
 
@@ -25,8 +25,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const kind = typeof req.query['kind'] === 'string' ? req.query['kind'] : undefined
   const limit = Math.min(Number(req.query['limit']) || 50, MAX_LIMIT)
 
-  if (kind && !CAPTURE_KINDS.includes(kind as CaptureKind)) {
-    return res.status(400).json({ error: `kind must be one of: ${CAPTURE_KINDS.join(', ')}` })
+  if (kind && !APP_IDS.includes(kind)) {
+    return res.status(400).json({ error: `kind must be one of: ${APP_IDS.join(', ')}` })
   }
 
   try {
