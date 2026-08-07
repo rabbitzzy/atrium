@@ -20,6 +20,7 @@ import {
   type PageUp,
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
+import { detectPage, type Detection, type Quad } from '../lib/page-detect'
 
 interface Props {
   student: Student
@@ -53,6 +54,10 @@ const CAMERA_HELP: Record<Exclude<CameraState, 'ready' | 'probing'>, string> = {
 const PROBE_TIMEOUT_MS = 12_000
 
 type Kind = 'worksheet' | 'chess' | 'doodle'
+
+/** Quad as SVG polygon points in a 0–100 viewBox. */
+const quadPoints = (q: Quad): string =>
+  [q.tl, q.tr, q.br, q.bl].map((p) => `${p.x * 100},${p.y * 100}`).join(' ')
 
 const KINDS: { id: Kind; label: string; labelZh: string; icon: string; blurb: string }[] = [
   { id: 'worksheet', label: 'Worksheet', labelZh: '作业', icon: '📝', blurb: 'Graded against a rubric' },
@@ -90,14 +95,45 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   )
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<StreamMode | null>(null)
+  const [detected, setDetected] = useState<Detection | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const paper = PAPER_FOR_KIND[kind]!
-  // One rect drives both the on-screen guide and the actual crop, so what the
-  // student lines the page up against is exactly what gets stored.
+  // The fallback rectangle, shown only when the page's own edges cannot be
+  // found. When they can, the outline below traces the real page instead.
   const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
+
+  /*
+   * Trace the detected page on the live preview.
+   *
+   * This is the honest version of the crop guide: rather than drawing a
+   * rectangle and hoping the student lines the page up inside it, it draws
+   * where the page actually is, so what is outlined is exactly what will be
+   * stored. When detection fails the outline disappears and the fixed
+   * rectangle comes back, which is also the signal that the capture will fall
+   * back to it.
+   *
+   * 4Hz, because detection costs ~100ms on a full-resolution frame and the
+   * page is not moving quickly — a student sliding paper into place is served
+   * fine by four updates a second.
+   */
+  useEffect(() => {
+    if (phase !== 'live') return
+    let cancelled = false
+    const tick = () => {
+      const video = videoRef.current
+      if (cancelled || !video?.videoWidth) return
+      setDetected(detectPage(video, video.videoWidth, video.videoHeight))
+    }
+    tick()
+    const timer = setInterval(tick, 250)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [phase])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -240,7 +276,17 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
 
     let frame
     try {
-      frame = await captureFrame(video, canvas, rect, quarterTurnsFor(pageUp))
+      // The upright page's aspect, which is what the deskewed output is drawn
+      // at — so a page photographed at a slight angle comes out the shape it
+      // really is, not the shape the lens saw.
+      frame = await captureFrame(
+        video,
+        canvas,
+        rect,
+        quarterTurnsFor(pageUp),
+        2400,
+        PAPER[paper].width / PAPER[paper].height,
+      )
     } catch (err) {
       setErrMsg((err as Error).message)
       setPhase('error')
@@ -273,6 +319,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
             pageUp,
             rect,
             focus: frame.focus,
+            detect: frame.crop,
             mode,
             source: { width: frame.sourceWidth, height: frame.sourceHeight },
             output: { width: frame.width, height: frame.height },
@@ -341,7 +388,34 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           }
           style={{ display: 'block', width: '100%', borderRadius: 12, background: '#000' }}
         />
-        {guide && (
+        {/* Page found: trace its actual corners, and dim everything outside
+            them, so the lit region is literally the image that gets stored. */}
+        {detected?.quad && (
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+          >
+            <defs>
+              <mask id="pagemask">
+                <rect x="0" y="0" width="100" height="100" fill="white" />
+                <polygon points={quadPoints(detected.quad)} fill="black" />
+              </mask>
+            </defs>
+            <rect x="0" y="0" width="100" height="100" fill="rgba(0,0,0,0.42)" mask="url(#pagemask)" />
+            <polygon
+              points={quadPoints(detected.quad)}
+              fill="none"
+              stroke="rgba(90,220,140,0.95)"
+              strokeWidth="0.4"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+
+        {/* No page found — fall back to the fixed rectangle, which is also what
+            the capture itself will fall back to. */}
+        {!detected?.quad && guide && (
           <div
             style={{
               position: 'absolute',
@@ -349,7 +423,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               top: `${guide.y * 100}%`,
               width: `${guide.width * 100}%`,
               height: `${guide.height * 100}%`,
-              border: '2px solid rgba(255,255,255,0.9)',
+              border: '2px dashed rgba(255,255,255,0.75)',
               borderRadius: 4,
               boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)',
               pointerEvents: 'none',

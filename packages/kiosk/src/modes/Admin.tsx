@@ -24,6 +24,7 @@ interface Capture {
     paper?: string
     orientation?: string
     focus?: { chosen: number; candidates?: number[]; gate?: { locked: boolean; ms: number } }
+    detect?: { method: 'detected' | 'fixed'; reason: string | null }
     mode?: { resizeMode: string; full?: boolean; maxWidth?: number; maxHeight?: number }
     output?: { width: number; height: number }
     source?: { width: number; height: number }
@@ -137,6 +138,16 @@ export default function Admin() {
                         <>
                           <dt>paper</dt>
                           <dd>{c.crop_json.paper} · {c.crop_json.orientation}</dd>
+                          {c.crop_json.detect && (
+                            <>
+                              <dt>crop</dt>
+                              <dd style={{ color: c.crop_json.detect.method === 'detected' ? '#1a7a4a' : '#8a6a00' }}>
+                                {c.crop_json.detect.method === 'detected'
+                                  ? 'page edges found, deskewed'
+                                  : `fixed guide — ${c.crop_json.detect.reason ?? 'detection failed'}`}
+                              </dd>
+                            </>
+                          )}
                           {c.crop_json.focus && (
                             <>
                               <dt>focus</dt>

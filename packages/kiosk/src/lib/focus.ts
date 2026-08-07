@@ -40,9 +40,41 @@ export interface Region {
 
 const WHOLE: Region = { x: 0, y: 0, width: 1, height: 1 }
 
+/*
+ * Scoring canvases are reused rather than allocated per call. The focus gate
+ * scores several times a second for seconds at a time, and a fresh pair of
+ * canvases each time was enough garbage to be worth avoiding on its own —
+ * quite apart from the reallocation cost guarded against below.
+ */
+let workCanvas: HTMLCanvasElement | null = null
+let tileScratch: HTMLCanvasElement | null = null
+
+const scratch = (): HTMLCanvasElement => (workCanvas ??= document.createElement('canvas'))
+
+const tileCanvas = (): HTMLCanvasElement => {
+  if (!tileScratch) {
+    tileScratch = document.createElement('canvas')
+    tileScratch.width = TILE
+    tileScratch.height = TILE
+  }
+  return tileScratch
+}
+
 export interface FocusProfile {
-  /** 90th-percentile tile score — the headline number. */
+  /** 90th-percentile tile score — stable, and the right one for ranking. */
   p90: number
+  /**
+   * Sharpest single tile — the right one for judging "is this readable at all".
+   *
+   * These two answer different questions and neither substitutes for the other.
+   * p90 assumes at least a tenth of the page carries content, which a part-done
+   * worksheet does not: a genuinely sharp page holding one line of pencil
+   * measured p90 101, against 102 and 203 for two visibly blurred captures — no
+   * threshold can separate those. The same three by sharpest tile are 434 / 203
+   * / 239, which separates cleanly, because "is the sharpest thing on this page
+   * sharp?" does not care how much of the page is blank.
+   */
+  best: number
   /** Every tile, row-major. A sharp page peaks where the content is; a
    *  defocused one is flat, which is how a focus miss is told from a tilt. */
   tiles: number[]
@@ -73,18 +105,20 @@ export function focusProfile(
   // scores from differently-sized sources comparable.
   const workW = WORKING_WIDTH
   const workH = Math.max(1, Math.round((WORKING_WIDTH * srcH) / srcW))
-  const work = document.createElement('canvas')
-  work.width = workW
-  work.height = workH
+  const work = scratch()
+  // Assigning to canvas.width reallocates and clears the backing store even
+  // when the value is unchanged, and the browser defers that cost past the end
+  // of the call — enough, at the rate the focus gate samples, to stretch a
+  // 200ms wait into 950ms. So resize only on an actual change.
+  if (work.width !== workW) work.width = workW
+  if (work.height !== workH) work.height = workH
   const workCtx = work.getContext('2d')
-  if (!workCtx) return { p90: 0, tiles: [], grid: GRID }
+  if (!workCtx) return { p90: 0, best: 0, tiles: [], grid: GRID }
   workCtx.drawImage(source, srcX, srcY, srcW, srcH, 0, 0, workW, workH)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = TILE
-  canvas.height = TILE
+  const canvas = tileCanvas()
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return { p90: 0, tiles: [], grid: GRID }
+  if (!ctx) return { p90: 0, best: 0, tiles: [], grid: GRID }
 
   const tiles: number[] = []
   const tileW = workW / GRID
@@ -117,7 +151,12 @@ export function focusProfile(
   }
 
   const sorted = [...tiles].sort((a, b) => a - b)
-  return { p90: sorted[Math.floor(0.9 * (sorted.length - 1))]!, tiles, grid: GRID }
+  return {
+    p90: sorted[Math.floor(0.9 * (sorted.length - 1))]!,
+    best: sorted[sorted.length - 1]!,
+    tiles,
+    grid: GRID,
+  }
 }
 
 /** p90 only — the common case. */
@@ -131,21 +170,22 @@ export function focusScore(
 }
 
 /**
- * Below this normalised score, a capture is probably not worth OCR'ing.
+ * Below this *sharpest-tile* score, a capture is probably not worth OCR'ing.
  *
- * Calibrated at the 1000px working width against five real stored captures
- * from this station, scored over the crop that was actually saved:
+ * Calibrated at the 1000px working width over the crop that actually gets
+ * stored, against real captures from this station:
  *
- *   sharp    892 / 1679 / 3070   (legible; 3070 is a dense Chinese worksheet)
- *   blurred  102 / 203           (visibly soft — 203 and 1679 are the *same*
- *                                 drawing minutes apart, which is the whole bug)
+ *   sharp    434 / 1549 / 2041 / 3953   (434 is a part-done worksheet holding a
+ *                                        single line of pencil — legible, and
+ *                                        the case a p90 threshold gets wrong)
+ *   blurred  203 / 239                  (203 and 2041 are the *same* drawing
+ *                                        minutes apart, which is the whole bug)
  *
- * 400 sits in the empty middle of that gap with margin on both sides. Sparse
- * faint pencil on white is the false-positive risk, since it scores low even
- * when sharp — acceptable, because this warns rather than blocks, and a
+ * 320 is the geometric midpoint of the 239–434 gap. The margin is narrower than
+ * one would like, which is a further reason this warns rather than blocks: a
  * threshold that refuses real work is worse than a soft capture.
  */
-export const FOCUS_WARN_BELOW = 400
+export const FOCUS_WARN_BELOW = 320
 
 export interface FocusGate {
   /** Did the score plateau, or did we give up and shoot anyway? */

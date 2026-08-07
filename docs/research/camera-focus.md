@@ -6,8 +6,10 @@ The lab page lives at `packages/kiosk/focus-lab.html` and is served by the Vite 
 
 ## The focus metric
 
-Variance of the Laplacian, 90th-percentile tile over a 5×5 grid, resampled to a
-fixed 1000px working width so scores compare across sources of different sizes.
+Variance of the Laplacian over a 5×5 tile grid, resampled to a fixed 1000px
+working width so scores compare across sources of different sizes. The headline
+number is the **sharpest tile** — see "The focus number is the sharpest tile"
+below for why a percentile was wrong.
 
 Scored **over the crop that gets stored**, never the whole frame. Desk grain
 outside the page is high-frequency texture that a whole-frame measurement counts
@@ -15,18 +17,20 @@ as sharpness: one stored capture measured 1767 full-frame and 260 over its own
 crop. The full-frame number was the one being recorded, and it was flattering
 exactly the captures that were failing.
 
-Calibrated against five real stored captures from this station:
+Calibrated against real stored captures from this station, sharpest tile over
+the crop that was actually saved:
 
-| capture | crop score | verdict on inspection |
-| -- | -- | -- |
-| 04-58-03 | 3070 | crisp — dense Chinese worksheet, fully legible |
-| 03-10-50 | 1679 | sharp |
-| 01-49-29 | 892 | acceptable |
-| 03-17-03 | 203 | visibly soft — *the same drawing as 03-10-50* |
-| 03-19-25 | 102 | badly blurred |
+| capture | sharpest | p90 | verdict on inspection |
+| -- | -- | -- | -- |
+| 04-58-03 | 3953 | 3070 | crisp — dense Chinese worksheet, fully legible |
+| 03-10-50 | 2041 | 1679 | sharp |
+| 01-49-29 | 1549 | 892 | acceptable |
+| live sparse pencil | 434 | 101 | sharp — one line of pencil on a blank page |
+| 03-17-03 | 239 | 203 | visibly soft — *the same drawing as 03-10-50* |
+| 03-19-25 | 203 | 102 | badly blurred |
 
-`FOCUS_WARN_BELOW = 400` sits in the empty middle of that gap. Sparse faint
-pencil is the false-positive risk, which is why it warns rather than blocks.
+`FOCUS_WARN_BELOW = 320` is the geometric midpoint of the 239–434 gap. Note the
+p90 column has no such gap at all — 101 sharp against 102 blurred.
 
 ## Autofocus is a cold-start problem, not a drift problem
 
@@ -144,3 +148,58 @@ the production hardware.
 
 - **A high-contrast fiducial inside the crop region** would give contrast-detect autofocus something to lock onto on a near-blank page. The Gradescope-style fixed template needs one anyway. Not needed to close BHCS-9, but it is the next lever if faint-pencil pages prove marginal.
 - **Whether the wedge is triggered by our open/close pattern** or is spontaneous. Now that the stream stays alive, the cycling that preceded it is much rarer — which may mask the problem rather than fix it.
+
+## Cropping: find the page, do not assume it
+
+Superseded the fixed centred rectangle. The old rationale in `paper.ts` held
+that edge detection could not work here because "a light wooden desk under the
+LED measures nearly as bright as paper". Measured, that is false: the frame's
+luminance histogram is cleanly bimodal — desk 80–135 (~43% of pixels), paper
+208–255 (~39%), with an empty valley from 136 to 207. Otsu finds that valley on
+its own, so no contour library and no OpenCV are needed.
+
+`detectPage` thresholds a 480px copy, takes the largest connected bright
+component, and reads the four corners off the extremes of x+y and x−y. Checked
+against a real page: corner angles 92/90/89/89, and a measured aspect of 1.287
+against letter's true 1.294 — an independent confirmation that the corners land
+on the paper.
+
+The page is then warped to a flat upright rectangle rather than merely cropped.
+There is real perspective to remove: opposite sides differ by 2.8% and the
+diagonal midpoints sit 43px apart on a ~2900px page, so correcting rotation
+alone would leave ~40px of error at the far corner.
+
+Portrait versus landscape is measured from the quad, not declared. `pageUp` says
+which edge is the top; it cannot distinguish a portrait page turned sideways
+from a landscape page the right way up, and students do both.
+
+Detection failing is not an error — the capture falls back to the fixed
+rectangle and records why in `crop_json.detect`, because refusing a child's work
+over a crop is worse than a loose one.
+
+### Two performance traps, both worth remembering
+
+**Clipped `drawImage` resamples the whole source.** The warp covers the output
+in a 10x10 grid of affine cells; drawing those 200 triangles directly from a
+3840x3104 frame measured **9397ms**. Copying the page's bounding box into an
+intermediate canvas at roughly output size first — one `drawImage` — brings the
+identical warp to **52ms**.
+
+**Assigning `canvas.width` reallocates even when the value is unchanged**, and
+the browser defers that cost past the end of the call. With the focus gate
+scoring several times a second, that turned a 200ms timer into 950ms and a warm
+capture into 8s. Guarding the assignment, and reusing the scoring canvases,
+gives it back.
+
+## The focus number is the sharpest tile, not a percentile
+
+A percentile measures blank paper on a part-done worksheet. A genuinely sharp
+page carrying one line of pencil scored p90 **101**, against **102** and **203**
+for two visibly blurred captures — no threshold separates those, and the gate
+could not lock either, because tiles jittering between 25 and 45 never fall
+inside its tolerance. It timed out at 10.7s on a perfectly readable page.
+
+By sharpest tile the same three are **434 / 203 / 239**, which separates
+cleanly, and the value is steady because it tracks content rather than paper.
+`FOCUS_WARN_BELOW` is 320, the geometric midpoint of that gap. The margin is
+narrower than one would like — a further reason this warns rather than blocks.

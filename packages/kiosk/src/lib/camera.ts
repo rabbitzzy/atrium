@@ -7,7 +7,9 @@
  * paper — so device selection is required, not a nicety.
  */
 
-import { focusScore, waitForStableFocus, type FocusGate, type Region } from './focus'
+import { focusProfile, waitForStableFocus, type FocusGate, type Region } from './focus'
+import { detectPage, type Point, type Quad } from './page-detect'
+import { warpQuad } from './warp'
 
 const REMEMBERED_KEY = 'atrium.camera.label'
 
@@ -187,6 +189,17 @@ export interface CapturedFrame {
     /** Whether autofocus settled before the burst, and how long that took. */
     gate: FocusGate
   }
+  /** How the page was framed: found by its edges, or fallen back to the guide. */
+  crop: Framing
+}
+
+/** How one frame ended up being cropped. */
+export interface Framing {
+  method: 'detected' | 'fixed'
+  /** The corners used, when they were found. */
+  quad: Quad | null
+  /** Why detection was not used, when it was not. */
+  reason: string | null
 }
 
 /**
@@ -259,48 +272,120 @@ function drawCrop(
 export async function captureFrame(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
-  /** Normalized 0–1 crop, applied to the source frame. */
+  /** Fallback crop, used when the page's own edges cannot be found. */
   crop?: Region,
-  /** Quarter-turns clockwise to bring the page upright after cropping. */
+  /** Quarter-turns clockwise to bring the page upright. */
   quarterTurns: 0 | 1 | 2 | 3 = 0,
   maxEdge = 2400,
-  /** Called while waiting on autofocus, so the UI can say what is happening. */
-  onWaiting?: (gate: { ms: number; score: number }) => void,
+  /** The paper's portrait aspect (short edge / long edge), e.g. 8.5/11. */
+  paperAspect?: number,
 ): Promise<CapturedFrame> {
   const width = video.videoWidth
   const height = video.videoHeight
   if (!width || !height) throw new Error('Camera produced an empty frame')
 
+  // Counter-clockwise turns bring the page upright; the caller thinks in
+  // clockwise ones because that is how the on-screen control reads.
+  const ccwTurns = (4 - (quarterTurns % 4)) % 4
+
+  /**
+   * Size the deskewed output from the page we actually found.
+   *
+   * Whether the sheet is portrait or landscape is measured, not declared. A
+   * student can lay a letter page either way and draw on it either way, and the
+   * pageUp control only says which edge is the top — it cannot distinguish "a
+   * portrait page turned sideways" from "a landscape page the right way up".
+   * Measuring the quad settles it, and snapping to the paper's true ratio
+   * corrects the residual aspect error the lens introduces.
+   */
+  const outSize = (quad: Quad) => {
+    const side = (a: Point, b: Point) =>
+      Math.hypot((a.x - b.x) * width, (a.y - b.y) * height)
+    const quadW = (side(quad.tl, quad.tr) + side(quad.bl, quad.br)) / 2
+    const quadH = (side(quad.tl, quad.bl) + side(quad.tr, quad.br)) / 2
+
+    // The quad is measured in the frame; a quarter turn swaps its axes.
+    const upright = ccwTurns % 2 === 1 ? quadH / quadW : quadW / quadH
+    const portrait = paperAspect ?? upright
+    const landscape = 1 / portrait
+    const aspect =
+      Math.abs(upright - portrait) <= Math.abs(upright - landscape) ? portrait : landscape
+
+    return aspect >= 1
+      ? { w: maxEdge, h: Math.round(maxEdge / aspect) }
+      : { w: Math.round(maxEdge * aspect), h: maxEdge }
+  }
+
   // Scratch canvas so a candidate can be scored at full output geometry without
   // disturbing the best frame kept so far.
   const scratch = document.createElement('canvas')
-  const measure = (): number => {
+
+  /**
+   * Frame one candidate. Detection is re-run per candidate rather than once,
+   * because a student's hand leaving the frame between the gate and the last
+   * shot changes what the page looks like — and the frame we keep should be
+   * cropped by its own geometry, not by an earlier frame's.
+   */
+  const frameOne = (
+    /** Corners already found this capture, to skip re-detecting a still page. */
+    reuse?: { quad: Quad | null; reason: string | null },
+  ): Framing => {
+    const found = reuse ?? detectPage(video, width, height)
+    if (found.quad) {
+      const { w, h } = outSize(found.quad)
+      warpQuad(scratch, video, width, height, found.quad, ccwTurns, w, h)
+      return { method: 'detected', quad: found.quad, reason: null }
+    }
     drawCrop(scratch, video, width, height, crop, quarterTurns, maxEdge)
-    return focusScore(scratch, scratch.width, scratch.height)
+    return { method: 'fixed', quad: null, reason: found.reason }
+  }
+
+  /**
+   * Sharpest tile, not the 90th percentile.
+   *
+   * Both the gate and the burst ranking ask about the same page, and on a
+   * part-done worksheet most of that page is blank. A percentile then measures
+   * blank paper: one genuinely sharp page holding a single line of pencil
+   * scored p90 101 with tiles jittering between 25 and 45, which is far outside
+   * the gate's tolerance — so it never locked and timed out at 10.7s on an
+   * image that was perfectly readable. The sharpest tile scored 434 on the same
+   * frame, and is steady, because it tracks the content rather than the paper.
+   */
+  const measure = (reuse?: Framing): number => {
+    frameOne(reuse)
+    return focusProfile(scratch, scratch.width, scratch.height).best
   }
 
   // 1. Let autofocus settle. On a stream that has been live a while this costs
   //    the length of the stability window (~1.2s); on a cold one it waits out
   //    the sweep, ~6s.
-  const gate = await waitForStableFocus(() => {
-    const score = measure()
-    onWaiting?.({ ms: 0, score })
-    return score
-  })
+  //
+  //    The page is stationary through the wait — that is the entire premise of
+  //    waiting — so its corners are found once and reused for every sample.
+  //    Re-detecting each time cost ~100ms a sample and stretched a 1.2s gate to
+  //    5.5s, which is time a student spends staring at a spinner for no gain.
+  const settled = frameOne()
+  const gate = await waitForStableFocus(() => measure(settled))
 
   // 2. Best of N. The gate makes a badly defocused frame unlikely; the burst
-  //    covers the residual jitter, and costs ~25ms per candidate because only
-  //    the winner is ever JPEG-encoded.
+  //    covers the residual jitter, and only the winner is ever JPEG-encoded.
   const candidates: number[] = []
   let best = -1
+  let bestCrop: Framing = { method: 'fixed', quad: null, reason: 'no candidate' }
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Could not get a 2D canvas context')
 
   for (let i = 0; i < 4; i++) {
-    const score = measure()
+    // Detected afresh per candidate, unlike the gate: a hand withdrawing between
+    // the gate releasing and the last shot changes where the page is, and the
+    // frame we keep should be cropped by its own geometry rather than by one
+    // measured seconds earlier.
+    const framing = frameOne()
+    const score = focusProfile(scratch, scratch.width, scratch.height).best
     candidates.push(score)
     if (score > best) {
       best = score
+      bestCrop = framing
       canvas.width = scratch.width
       canvas.height = scratch.height
       ctx.drawImage(scratch, 0, 0)
@@ -317,5 +402,6 @@ export async function captureFrame(
     sourceWidth: width,
     sourceHeight: height,
     focus: { chosen: best, candidates, gate },
+    crop: bestCrop,
   }
 }
