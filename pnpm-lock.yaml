@@ -14,6 +14,9 @@ importers:
 
   packages/app-chess:
     dependencies:
+      '@atrium/chess-rules':
+        specifier: workspace:*
+        version: link:../chess-rules
       '@atrium/schema':
         specifier: workspace:*
         version: link:../schema
@@ -60,6 +63,22 @@ importers:
         specifier: ^5.5.3
         version: 5.9.3
 
+  packages/chess-rules:
+    dependencies:
+      chess.js:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.5.0
+        version: 22.19.17
+      tsx:
+        specifier: ^4.16.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.5.3
+        version: 5.9.3
+
   packages/kiosk:
     dependencies:
       '@atrium/app-chess':
@@ -99,6 +118,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.1
         version: 4.7.0(vite@5.4.21(@types/node@22.19.17))
+      tsx:
+        specifier: ^4.16.2
+        version: 4.21.0
       typescript:
         specifier: ^5.5.3
         version: 5.9.3
@@ -1136,6 +1158,9 @@ packages:
   check-error@2.1.3:
     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
     engines: {node: '>= 16'}
+
+  chess.js@1.4.0:
+    resolution: {integrity: sha512-BBJgrrtKQOzFLonR0l+k64A98NLemPwNsCskwb+29bRwobUa4iTm51E1kwGPbWXAcfdDa18nad6vpPPKPWarqw==}
 
   chownr@2.0.0:
     resolution: {integrity: sha512-bIomtDF5KGpdogkLd9VspvFzk9KfpyyGlS8YFVZl7TGPBHL5snIOnxeshwVgPteQ9b4Eydl+pVbIyE1DcvCWgQ==}
@@ -3022,6 +3047,8 @@ snapshots:
       pathval: 2.0.1
 
   check-error@2.1.3: {}
+
+  chess.js@1.4.0: {}
 
   chownr@2.0.0: {}
 

@@ -1,15 +1,16 @@
 /**
  * Chess notes — server half.
  *
- * Output matches chess-karma's ocr.extract_moves() exactly, so a stored capture
- * can be piped straight into that repo's parser/validator:
- *     python run_local.py capture.ocr.json
- * That keeps the 3-pass python-chess corrector — the genuinely hard part — in
- * the place it already works, until BHCS-12 ports it to `packages/chess-rules`
- * and it becomes this app's `refine`.
+ * Two stages, and the split between them is the point. The prompt extracts
+ * what the child wrote, verbatim and uncorrected. `refine` then decides what
+ * it meant, against the board. Neither stage is allowed to do the other's job:
+ * a prompt that quietly corrects notation destroys the evidence the validator
+ * reasons from, and a validator that rewrites `ocr_json` destroys the evidence
+ * a teacher reasons from.
  */
 
 import type { CaptureAppServer, GeminiSchema } from '@atrium/schema'
+import { validateScoresheet, type ChessScoresheet, type ValidatedScoresheet } from '@atrium/chess-rules'
 
 const CHESS_SCHEMA: GeminiSchema = {
   type: 'OBJECT',
@@ -68,11 +69,23 @@ CRITICAL RULES:
 
 Extract the metadata and all moves in order from move 1 to the last written move.`
 
-export const chessServer: CaptureAppServer = {
+export const chessServer: CaptureAppServer<ChessScoresheet, ValidatedScoresheet> = {
   id: 'chess',
+
   extract: {
     schema: CHESS_SCHEMA,
     systemPrompt: CHESS_PROMPT,
     userPrompt: 'Extract all chess moves and metadata from this scoresheet.',
+  },
+
+  /**
+   * Resolve the transcription against the rules of chess.
+   *
+   * Pure and synchronous under the hood — no model call, no network, no cost.
+   * It runs on the extraction that is already in hand, which is also why the
+   * backfill can replay it over every chess capture ever taken.
+   */
+  async refine(raw) {
+    return validateScoresheet(raw)
   },
 }

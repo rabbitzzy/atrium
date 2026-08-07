@@ -35,6 +35,10 @@ interface Capture {
   ocr_json: unknown
   ocr_status: OcrStatus
   ocr_error: string | null
+  /** Null on rows captured before the handling app had a refine step. */
+  refined_json: unknown
+  refined_status: OcrStatus | null
+  refined_error: string | null
   ocr_ms: number | null
   captured_at: string
 }
@@ -186,10 +190,34 @@ export default function Admin() {
                         </>
                       )}
                       {c.ocr_error && <><dt>error</dt><dd style={{ color: '#c04010' }}>{c.ocr_error}</dd></>}
+                      {c.refined_error && (
+                        <><dt>refine error</dt><dd style={{ color: '#c04010' }}>{c.refined_error}</dd></>
+                      )}
                     </dl>
+                    {/*
+                      Both payloads, never merged. The top one is what the model
+                      read off the paper; the bottom is what the app made of it.
+                      Seeing them together is the whole point of this viewer —
+                      it is where you find out whether a "correction" was one.
+                    */}
+                    <div style={{ fontSize: 11, color: '#999', marginBottom: 4, fontFamily: 'ui-monospace, monospace' }}>
+                      ocr_json — what was read
+                    </div>
                     <pre style={pre}>
                       {c.ocr_json ? JSON.stringify(c.ocr_json, null, 2) : '// no ocr_json (skipped or failed)'}
                     </pre>
+                    {c.refined_status !== 'skipped' && (
+                      <>
+                        <div style={{ fontSize: 11, color: '#999', margin: '10px 0 4px', fontFamily: 'ui-monospace, monospace' }}>
+                          refined_json — what it was taken to mean
+                        </div>
+                        <pre style={pre}>
+                          {c.refined_json
+                            ? JSON.stringify(c.refined_json, null, 2)
+                            : '// no refined_json — captured before this app had a refine step'}
+                        </pre>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
