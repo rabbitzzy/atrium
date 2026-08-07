@@ -153,10 +153,26 @@ the production hardware.
 
 Superseded the fixed centred rectangle. The old rationale in `paper.ts` held
 that edge detection could not work here because "a light wooden desk under the
-LED measures nearly as bright as paper". Measured, that is false: the frame's
-luminance histogram is cleanly bimodal — desk 80–135 (~43% of pixels), paper
-208–255 (~39%), with an empty valley from 136 to 207. Otsu finds that valley on
-its own, so no contour library and no OpenCV are needed.
+LED measures nearly as bright as paper". On an evenly lit frame that is false —
+the luminance histogram is cleanly bimodal, desk 80–135 and paper 208–255 with
+an empty valley between.
+
+**But the station is not evenly lit, and brightness alone is genuinely not
+enough.** With one half of a sheet in shadow, a single row measured 241–253
+where the light falls, 127–203 where it does not, and a desk at 125–135: the
+shadowed half of the page is *darker than the lit desk*. No luminance threshold
+separates those, and the first version of this sliced pages in half along the
+shadow line.
+
+Colour does separate them, because the desk is wood and the paper is not. On
+that same row, R−B was **+63** on desk, **−8** on lit page, **−23** on shadowed
+page. Shadow changes how much light a surface returns; it does not make oak stop
+being orange. So the threshold runs on `luminance − 2·(R−B)`, which scores desk
+~2–10 and paper ~170–255 — a far wider gap than brightness ever gave. On a
+neutral grey desk R−B is ~0 for both and it degrades to the plain luminance
+test, which is correct rather than a failure.
+
+Otsu still picks the split, so no contour library and no OpenCV are needed.
 
 `detectPage` thresholds a 480px copy, takes the largest connected bright
 component, and reads the four corners off the extremes of x+y and x−y. Checked

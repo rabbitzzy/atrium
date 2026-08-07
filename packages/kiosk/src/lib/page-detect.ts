@@ -6,15 +6,16 @@
  * two bad things at once: it keeps desk that the model has to look past, and it
  * keeps whatever rotation the page happened to land at.
  *
- * An earlier note in paper.ts argued this could not work — that "a light wooden
- * desk under the LED measures nearly as bright as paper, so the bright-region
- * bounding box covers essentially the whole frame". Measured on this station,
- * that is not so. The frame's luminance histogram is cleanly bimodal: desk sits
- * around 80–135, paper around 208–255, with an empty valley between 136 and
- * 207. A threshold placed in that valley separates them outright, so this needs
- * no contour library and no OpenCV — Otsu finds the valley on its own, and
- * finds it again under different lighting, which a hard-coded threshold would
- * not.
+ * An earlier note in paper.ts argued this could not work at all. It half had a
+ * point: on an evenly lit frame the luminance histogram is cleanly bimodal —
+ * desk around 80–135, paper 208–255 — but the station is not evenly lit, and a
+ * sheet with one half in shadow reads darker there than the desk reads in the
+ * light. Brightness alone genuinely cannot separate those. Colour can, so this
+ * thresholds a combined score; see the comment in detectPage.
+ *
+ * Either way it needs no contour library and no OpenCV — Otsu finds the split
+ * on its own, and finds it again under different lighting, which a hard-coded
+ * threshold would not.
  *
  * Detection runs on a downscaled copy. Paper edges are a huge, low-frequency
  * feature; resolving them does not need 11.9 megapixels, and working small
@@ -153,17 +154,39 @@ export function detectPage(source: CanvasImageSource, width: number, height: num
   ctx.drawImage(source, 0, 0, w, h)
   const { data } = ctx.getImageData(0, 0, w, h)
 
-  const gray = new Uint8Array(w * h)
+  /*
+   * Score "paperness" from brightness *and* colour, not brightness alone.
+   *
+   * Brightness alone fails here, and not marginally. A sheet lying partly in
+   * shadow was measured across one row at 241–253 where the light falls and
+   * 127–203 where it does not, against a desk at 125–135 — the shadowed half of
+   * the page is darker than the lit desk, so no threshold on luminance can
+   * separate them, and the crop sliced the page in half along the shadow line.
+   *
+   * Colour separates them cleanly, because the desk is wood and the paper is
+   * not. Measured on the same row: desk R−B = +63, lit page −8, shadowed page
+   * −23. Shadow changes how much light a surface returns; it does not make oak
+   * stop being orange. Subtracting the warmth therefore rescues exactly the
+   * pixels brightness loses.
+   *
+   * On a neutral grey desk R−B would be ~0 for both and this degrades to the
+   * plain luminance test, which is the correct behaviour rather than a failure.
+   */
+  const paperness = new Uint8Array(w * h)
   const hist = new Uint32Array(256)
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    const g = (0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!) | 0
-    gray[p] = g
-    hist[g]!++
+    const r = data[i]!
+    const g = data[i + 1]!
+    const b = data[i + 2]!
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b
+    const score = Math.max(0, Math.min(255, (lum - 2 * (r - b)) | 0))
+    paperness[p] = score
+    hist[score]!++
   }
 
   const threshold = otsuThreshold(hist, w * h)
   const bright = new Uint8Array(w * h)
-  for (let i = 0; i < gray.length; i++) bright[i] = gray[i]! > threshold ? 1 : 0
+  for (let i = 0; i < paperness.length; i++) bright[i] = paperness[i]! > threshold ? 1 : 0
 
   const { mask, size } = largestComponent(bright, w, h)
   const coverage = size / (w * h)
