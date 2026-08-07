@@ -6,8 +6,8 @@ contract that keeps them apart.
 Read this before adding a package, a capture kind, or a route.
 
 Steps 1–4 of BHCS-13 have landed: the split described below is the code, not a
-plan. Steps 5–7 (chess-rules, evaluator consolidation, then BHCS-10 and
-BHCS-11) are still ahead.
+plan, and step 5 (`chess-rules`) with it. Steps 6–7 — evaluator
+consolidation, then BHCS-10 and BHCS-11 — are still ahead.
 
 ## The three layers
 
@@ -51,7 +51,7 @@ HTTP rather than imported.
 | `packages/worksheet-print` | Print/PDF service (Hono :3002, Puppeteer, QR) — *not* the worksheet app | Backend service |
 | `packages/evaluator` | Python FastAPI worksheet grader | Backend service (duplicated, see below) |
 | `packages/skill-graph` | BKT + student state (Hono) | Backend service |
-| — | *no `chess-rules` package yet* | Helper, BHCS-12 |
+| `packages/chess-rules` | Handwritten move text resolved against the board | Helper |
 
 The dependency arrows all point one way: apps depend on `schema`, the platform
 depends on both, and nothing depends on the platform. No app imports another.
@@ -153,8 +153,8 @@ packages/
                           the contract does not force machinery on simple kinds.
 
   schema/                 Helper. Shared types and the capture app contract.
-  chess-rules/            Helper, not yet built. Port of chess-karma
-                          parser.py + validator.py onto chess.js. (BHCS-12)
+  chess-rules/            Helper. Port of chess-karma parser.py + validator.py
+                          onto chess.js. Pure, unit-tested against the Python.
 
   skill-graph/            Service. BKT + student state.
   worksheet-print/        Service. Renamed from `worksheet` — it prints Cards,
@@ -239,7 +239,10 @@ Each step compiles and ships on its own. No big-bang refactor.
 4. ~~**Move each app out.**~~ Done, in one commit rather than three — every
    moved file was byte-identical and the client bundle hash did not change, so
    three commits would have been ceremony rather than reviewability.
-5. **Build `packages/chess-rules`** — BHCS-12, now with an obvious home.
+5. ~~**Build `packages/chess-rules`**~~ Done (BHCS-12). Reproduces the Python
+   on 101 of 101 half-moves across both chess-karma fixtures, statuses
+   included — which needed difflib's exact ratio *and* python-chess's
+   move-generation order, because both decide what a garbled cell resolves to.
 6. **Consolidate the evaluators**, delete `packages/evaluator` and
    `ScanSubmit.tsx`.
 7. **Then** BHCS-11 and BHCS-10, each inside one app directory.
@@ -249,9 +252,10 @@ capability. Steps 6–7 are the features that motivated the split.
 
 ### What steps 1–4 did not do
 
-- **`refine` has no column.** It runs, and its output rides in the pipeline
-  outcome and the HTTP response, but `captures` stores only the verbatim
-  extraction. BHCS-12 must add the column rather than reusing `ocr_json`.
+- ~~**`refine` has no column.**~~ Migration 003 added `refined_json`,
+  `refined_status` and `refined_error` — generic, not chess-named, because the
+  refine step belongs to the platform's pipeline. `ocr_json` is still never
+  rewritten.
 - **The Vercel build is unverified.** The dev server resolves the workspace
   packages through Vite, which is the path in daily use and is covered
   end-to-end. `@vercel/node` traces and compiles TypeScript from linked

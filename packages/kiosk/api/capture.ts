@@ -106,9 +106,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 4. Record the result. If this update fails the image and row still
     //    exist, so the capture is replayable from the 'pending' index.
     //
-    //    Only the verbatim extraction is persisted today. `outcome.refined`
-    //    has no column yet and no app produces one — BHCS-12 adds both, and
-    //    must add the column rather than overwriting ocr_json with it.
+    //    The two halves are written side by side and never merged:
+    //    `ocr_json` is what the model read, `refined_json` is what the app
+    //    made of it. Overwriting the first with the second would throw away
+    //    the only record of what was actually on the paper.
     const { error: updateError } = await db
       .from('captures')
       .update({
@@ -117,6 +118,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ocr_error: outcome.error,
         ocr_model: outcome.model,
         ocr_ms: outcome.ms,
+        refined_json: outcome.refined,
+        refined_status: outcome.refinedStatus,
+        refined_error: outcome.refinedError,
       })
       .eq('id', captureId)
 

@@ -14,11 +14,31 @@ export interface PipelineOutcome {
   status: 'ok' | 'skipped' | 'failed'
   /** The verbatim extraction. Never rewritten — it is the teacher's audit trail. */
   data: unknown | null
-  /** `refine`'s output, alongside `data` rather than in place of it. */
-  refined: unknown | null
   model: string | null
   ms: number | null
   error: string | null
+
+  /**
+   * `refine`'s output, alongside `data` rather than in place of it, with its
+   * own status and error: refinement can fail on a perfectly good extraction,
+   * and reporting that as an OCR failure would send anyone debugging it to the
+   * wrong place entirely.
+   */
+  refined: unknown | null
+  refinedStatus: 'ok' | 'skipped' | 'failed'
+  refinedError: string | null
+}
+
+/** Nothing extracted and nothing refined — the store-only outcome. */
+const NOTHING: PipelineOutcome = {
+  status: 'skipped',
+  data: null,
+  model: null,
+  ms: null,
+  error: null,
+  refined: null,
+  refinedStatus: 'skipped',
+  refinedError: null,
 }
 
 export async function runPipeline(
@@ -28,9 +48,7 @@ export async function runPipeline(
 ): Promise<PipelineOutcome> {
   // No extraction declared — the capture is stored and nothing else. This is
   // the store-only path, expressed as an absence rather than a special case.
-  if (!app.extract) {
-    return { status: 'skipped', data: null, refined: null, model: null, ms: null, error: null }
-  }
+  if (!app.extract) return NOTHING
 
   let data: unknown
   let model: string
@@ -46,25 +64,20 @@ export async function runPipeline(
   } catch (err) {
     // A failed pipeline must never lose the image — capture.ts has already
     // persisted it to Drive by this point, and the row is written either way.
-    return {
-      status: 'failed',
-      data: null,
-      refined: null,
-      model: null,
-      ms: null,
-      error: (err as Error).message,
-    }
+    return { ...NOTHING, status: 'failed', error: (err as Error).message }
   }
 
-  if (!app.refine) return { status: 'ok', data, refined: null, model, ms, error: null }
+  const extracted = { ...NOTHING, status: 'ok' as const, data, model, ms }
+
+  if (!app.refine) return extracted
 
   try {
-    return { status: 'ok', data, refined: await app.refine(data), model, ms, error: null }
+    return { ...extracted, refined: await app.refine(data), refinedStatus: 'ok' }
   } catch (err) {
     // Refinement is post-processing over an extraction that already succeeded.
     // Losing the raw transcription because a validator threw would be the worse
-    // outcome by far, so the status stays 'ok' and the failure is reported
+    // outcome by far, so the capture stays 'ok' and the failure is recorded
     // beside the data rather than instead of it.
-    return { status: 'ok', data, refined: null, model, ms, error: `refine failed: ${(err as Error).message}` }
+    return { ...extracted, refinedStatus: 'failed', refinedError: (err as Error).message }
   }
 }
