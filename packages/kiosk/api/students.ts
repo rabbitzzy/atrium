@@ -1,12 +1,13 @@
 /**
  * GET /api/students — the kiosk roster, live from the BHCS portal.
  *
- * The portal is the single source of truth for student identity (CLAUDE.md);
- * Atrium never stores its own copy. Read-only by construction.
+ * The portal is the single source of truth for student profiles (CLAUDE.md);
+ * Atrium never stores its own copy. Read-only by construction: the portal's
+ * API exposes no way for the kiosk to alter a student record.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { bhcs } from './_lib/db'
+import { listActiveStudents } from './_lib/bhcs'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -15,24 +16,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { data, error } = await bhcs()
-      .from('students')
-      .select('id, first_name, last_name')
-      .eq('active', true)
-      .order('first_name')
-
-    if (error) throw new Error(error.message)
-
-    const students = (data ?? []).map((s) => ({
-      id: s.id as string,
-      name: `${s.first_name} ${s.last_name}`.trim(),
-    }))
+    const students = await listActiveStudents()
 
     // Roster changes rarely; a short cache keeps the picker instant across the
     // rapid check-in/check-out cycle without going stale for a whole session.
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
     return res.status(200).json({ students })
   } catch (err) {
-    return res.status(500).json({ error: (err as Error).message })
+    // 502, not 500: when this fails it is the portal that is unreachable, not
+    // the kiosk that is broken, and the two want different responses from us.
+    return res.status(502).json({ error: (err as Error).message })
   }
 }
