@@ -6,8 +6,9 @@ contract that keeps them apart.
 Read this before adding a package, a capture kind, or a route.
 
 Steps 1–4 of BHCS-13 have landed: the split described below is the code, not a
-plan, and step 5 (`chess-rules`) with it. Steps 6–7 — evaluator
-consolidation, then BHCS-10 and BHCS-11 — are still ahead.
+plan, and steps 5 and 7's chess half with it — `chess-rules` and BHCS-11's
+resolution step both landed. Step 6 (evaluator consolidation) and BHCS-10
+(streamed worksheet evaluation) are still ahead.
 
 ## The three layers
 
@@ -147,14 +148,14 @@ packages/
                           both app registries. No domain knowledge.
 
   app-worksheet/          Capture → grade → Debrief. Streamed by BHCS-10.
-  app-chess/              Capture → transcribe. Validated by BHCS-12,
-                          resolved on a board by BHCS-11.
+  app-chess/              Capture → transcribe → validate → resolve on a board.
   app-doodle/             Capture → store. Deliberately tiny; it is the proof
                           the contract does not force machinery on simple kinds.
 
   schema/                 Helper. Shared types and the capture app contract.
   chess-rules/            Helper. Port of chess-karma parser.py + validator.py
-                          onto chess.js. Pure, unit-tested against the Python.
+                          onto chess.js, plus the resolution loop BHCS-11 asks
+                          with. Pure, unit-tested against the Python.
 
   skill-graph/            Service. BKT + student state.
   worksheet-print/        Service. Renamed from `worksheet` — it prints Cards,
@@ -245,7 +246,11 @@ Each step compiles and ships on its own. No big-bang refactor.
    move-generation order, because both decide what a garbled cell resolves to.
 6. **Consolidate the evaluators**, delete `packages/evaluator` and
    `ScanSubmit.tsx`.
-7. **Then** BHCS-11 and BHCS-10, each inside one app directory.
+7. BHCS-11 ~~and~~ BHCS-10, each inside one app directory. BHCS-11 is done and
+   was the proof the split paid off: the board, the prompt selection and the
+   re-anchoring loop are entirely inside `app-chess` and `chess-rules`. The
+   platform gained one optional contract field (`needsResolve`) and one route
+   that stores a payload it does not read.
 
 Steps 1–4 were refactoring with no behavior change. Step 5 is the first real
 capability. Steps 6–7 are the features that motivated the split.

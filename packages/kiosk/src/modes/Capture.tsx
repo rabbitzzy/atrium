@@ -93,9 +93,22 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [detected, setDetected] = useState<Detection | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
+  /** Capture id whose resolution step is finished, so it is not offered twice. */
+  const [resolvedFor, setResolvedFor] = useState<string | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const paper = app.paper
+  /*
+   * Whether this app wants a word with the student before showing the result.
+   * The platform asks the app and takes the answer — it cannot look inside
+   * `result.ocr` to decide, because it does not know what is in there.
+   */
+  const needsResolve =
+    result !== null &&
+    result.captureId !== resolvedFor &&
+    result.ocrStatus === 'ok' &&
+    Boolean(app.Resolve) &&
+    (app.needsResolve?.(result.ocr) ?? true)
   const pageUp = pageUpOverride ?? defaultPageUp(frameSize?.w, frameSize?.h)
   // The fallback rectangle, shown only when the page's own edges cannot be
   // found. When they can, the outline below traces the real page instead.
@@ -334,12 +347,35 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     }
   }
 
+  /*
+   * A resolution step has finished. Show the settled result, and persist it —
+   * but never block on the write: the student is standing there, they have
+   * already answered, and a slow database is not their problem. A failed save
+   * leaves the row's machine-made reading in place, which is the same state
+   * the capture would have been in had they never been asked.
+   */
+  function handleResolved(resolved: unknown) {
+    setResult((prev) => (prev ? { ...prev, ocr: resolved } : prev))
+    setResolvedFor(result?.captureId ?? null)
+
+    if (!result) return
+    void fetch('/api/capture-resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ captureId: result.captureId, kind: result.kind, refined: resolved }),
+    }).catch(() => {
+      // Deliberately silent. Reported nowhere the student can see, because
+      // there is nothing they could do about it.
+    })
+  }
+
   // Back to the live view, not to setup: the stream is still running, and
   // restarting it would hand the next capture the same cold autofocus sweep
   // this screen exists to avoid. Only re-probe if the camera really is gone.
   function again() {
     setSoftFocus(null)
     setResult(null)
+    setResolvedFor(null)
     setErrMsg(null)
     if (streamRef.current?.getVideoTracks()[0]?.readyState === 'live') {
       setPhase('live')
@@ -576,7 +612,17 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         </div>
       )}
 
-      {phase === 'done' && result && (
+      {/*
+        A capture the app wants to ask about takes over the screen before the
+        result does. Nothing here knows what is being asked or why — only that
+        this app has a step, that this result needs it, and that resolving
+        produces a new result to show and to store.
+      */}
+      {phase === 'done' && result && needsResolve && app.Resolve && (
+        <app.Resolve result={result.ocr} onResolved={handleResolved} />
+      )}
+
+      {phase === 'done' && result && !needsResolve && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {softFocus !== null && (
             <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>

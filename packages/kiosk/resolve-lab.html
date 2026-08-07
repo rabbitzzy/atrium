@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atrium — Chess Resolution Lab</title>
+    <style>
+      body { font-family: 'DM Sans', system-ui, sans-serif; margin: 0; padding: 24px; background: #faf9f7; color: #1a1a2e; }
+      h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
+      p.sub { font-size: 13px; color: #888; margin: 0 0 20px; }
+      #root { max-width: 760px; }
+      #state { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; margin-top: 20px; padding: 14px; background: #1a1a2e; color: #e8e6e3; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Chess Resolution Lab — dev only</h1>
+    <p class="sub">
+      The stop-and-ask step, without needing a camera or a printed scoresheet.
+      Loads a real game whose third move is misread, which desyncs the board and
+      collapses everything after it — answer the question and watch the tail
+      come back.
+    </p>
+    <div id="root"></div>
+    <div id="state"></div>
+    <script type="module" src="/src/lab/resolve-lab.tsx"></script>
+  </body>
+</html>

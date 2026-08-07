@@ -98,4 +98,14 @@ export interface CaptureApp<Result = unknown> {
    * capture flow never learns an interactive step happened.
    */
   Resolve?: FC<{ result: Result; onResolved: (r: Result) => void }>
+
+  /**
+   * Whether this particular result is worth interrupting for.
+   *
+   * The platform cannot answer this without looking inside a payload it is not
+   * allowed to understand, so the app answers it. Absent means "always ask
+   * when `Resolve` exists"; a `Resolve` with no `needsResolve` is a step every
+   * student pays for whether or not there is anything to fix.
+   */
+  needsResolve?: (result: Result) => boolean
 }
