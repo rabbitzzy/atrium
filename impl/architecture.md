@@ -6,9 +6,9 @@ contract that keeps them apart.
 Read this before adding a package, a capture kind, or a route.
 
 Steps 1–4 of BHCS-13 have landed: the split described below is the code, not a
-plan, and steps 5 and 7's chess half with it — `chess-rules` and BHCS-11's
-resolution step both landed. Step 6 (evaluator consolidation) and BHCS-10
-(streamed worksheet evaluation) are still ahead.
+plan, and steps 5 and 7 with it — `chess-rules`, BHCS-11's resolution step, and
+BHCS-10's streamed worksheet evaluation. Step 6 (evaluator consolidation) is
+the last one outstanding.
 
 ## The three layers
 
@@ -99,13 +99,14 @@ two entry points, and `id` is the join:
 ```ts
 @atrium/app-chess          → CaptureApp        { id, label, labelZh, icon,
                                                  blurb, paper, waitHint,
-                                                 ResultView, Resolve? }
+                                                 ResultView, StreamView?,
+                                                 Resolve?, needsResolve? }
 @atrium/app-chess/server   → CaptureAppServer  { id, extract?, refine? }
 ```
 
 Optionality carries all the variation. No `extract` **is** the store-only path.
-`extract.stream` **is** BHCS-10. `refine` **is** where BHCS-12's validator
-runs. `Resolve` **is** BHCS-11's board.
+`extract.stream` + `StreamView` **are** BHCS-10. `refine` **is** where
+BHCS-12's validator runs. `Resolve` **is** BHCS-11's board.
 
 The platform holds two registries and nothing else:
 
@@ -246,11 +247,41 @@ Each step compiles and ships on its own. No big-bang refactor.
    move-generation order, because both decide what a garbled cell resolves to.
 6. **Consolidate the evaluators**, delete `packages/evaluator` and
    `ScanSubmit.tsx`.
-7. BHCS-11 ~~and~~ BHCS-10, each inside one app directory. BHCS-11 is done and
-   was the proof the split paid off: the board, the prompt selection and the
+7. ~~BHCS-11 and BHCS-10~~ Done, each inside one app directory. BHCS-11 was the
+   proof the split paid off: the board, the prompt selection and the
    re-anchoring loop are entirely inside `app-chess` and `chess-rules`. The
    platform gained one optional contract field (`needsResolve`) and one route
    that stores a payload it does not read.
+
+   BHCS-10 is the same shape. `app-worksheet` sets `extract.stream` and gains a
+   `StreamView`; chess and doodle change in no way at all and keep the buffered
+   transport, with no branch on kind anywhere. What the platform gained is
+   genuinely app-agnostic and is what BHCS-17 will reuse for chess:
+
+   | Platform | What it is |
+   |---|---|
+   | `api/_lib/partial-json.ts` | Reads a JSON document that is still being written. Only surfaces values that can no longer change, so nothing on screen is ever revised. |
+   | `api/_lib/sse.ts` | Answering a request in instalments. |
+   | `api/_lib/gemini.ts` | `visionJsonStream`, the same call and the same request body as `visionJson`, delivered as it is written. |
+   | `src/lib/capture-stream.ts` | The kiosk end of the same wire. |
+
+   The row is written identically either way: what is stored is parsed from the
+   accumulated text with the strict parser, never from a repaired partial.
+
+   **Where the wait actually goes, measured.** Streaming moves less of it than
+   the ticket assumed, and the reason is worth knowing before BHCS-17 builds on
+   it: `gemini-2.5-flash` thinks before it emits a single output token, and
+   thinking does not stream. On one worksheet, time to first token tracked the
+   thinking budget almost linearly — 1.8s at `thinkingBudget: 0`, 2.7s at 256,
+   3.7s at 512, 4.5–9.7s on the default budget (579–1590 thought tokens). Once
+   text starts, the ten questions land over about 1.5s.
+
+   So on today's configuration streaming turns a ~10s blank screen into a ~7s
+   blank screen followed by 3s of reading. Real, but the lever that moves this
+   is the thinking budget, not the transport. That is a grading-quality
+   decision (a 256-token budget graded the same sheet identically in the runs
+   above, but three runs is not evidence) and it belongs with the P0's OCR
+   questions rather than here.
 
 Steps 1–4 were refactoring with no behavior change. Step 5 is the first real
 capability. Steps 6–7 are the features that motivated the split.

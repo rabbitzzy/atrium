@@ -20,6 +20,7 @@ import {
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { detectPage, type Detection, type Quad } from '../lib/page-detect'
+import { isEventStream, readCaptureStream } from '../lib/capture-stream'
 import { APPS, type AnyCaptureApp } from '../platform/registry'
 
 interface Props {
@@ -93,6 +94,12 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [detected, setDetected] = useState<Detection | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
+  /**
+   * The reading so far, for an app that streams. Held as `unknown` like every
+   * other payload the platform carries: it is the app's shape, and only the
+   * app's own StreamView is allowed to look inside it.
+   */
+  const [partial, setPartial] = useState<unknown>(null)
   /** Capture id whose resolution step is finished, so it is not offered twice. */
   const [resolvedFor, setResolvedFor] = useState<string | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -281,6 +288,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     if (!video || !canvas) return
 
     const rect = cropRegion(paper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
+    setPartial(null)
     setPhase('focusing')
 
     let frame
@@ -339,7 +347,14 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         const detail = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(detail.error ?? `Capture failed (${res.status})`)
       }
-      setResult((await res.json()) as CaptureResponse)
+      // Which of the two the endpoint chose is the app's declaration, made
+      // server-side; the kiosk reads it off the response rather than deciding.
+      // Both paths end at the same CaptureResponse.
+      setResult(
+        isEventStream(res)
+          ? await readCaptureStream(res, setPartial)
+          : ((await res.json()) as CaptureResponse),
+      )
       setPhase('done')
     } catch (err) {
       setErrMsg((err as Error).message)
@@ -375,6 +390,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   function again() {
     setSoftFocus(null)
     setResult(null)
+    setPartial(null)
     setResolvedFor(null)
     setErrMsg(null)
     if (streamRef.current?.getVideoTracks()[0]?.readyState === 'live') {
@@ -596,12 +612,30 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         </div>
       )}
 
+      {/*
+        A spinner until there is something to read, and then the reading
+        itself. The swap is the whole feature: the wait is not shortened, it is
+        spent on the first question while the fourth is still arriving.
+
+        Nothing here knows what is in `partial` — the app renders it, exactly
+        as it renders the finished result.
+      */}
       {phase === 'uploading' && (
-        <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-          <div style={spinner} />
-          <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Saving and reading… 正在保存…</p>
-          <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>{app.waitHint}</p>
-        </div>
+        partial && app.StreamView ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <app.StreamView partial={partial} />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ ...spinner, width: 18, height: 18, borderWidth: 2 }} />
+              <span style={{ fontSize: 13, color: '#aaa' }}>Still reading… 还在看…</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            <div style={spinner} />
+            <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Saving and reading… 正在保存…</p>
+            <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>{app.waitHint}</p>
+          </div>
+        )
       )}
 
       {phase === 'error' && (

@@ -14,5 +14,11 @@
 export type { Student } from './student'
 export type { PaperId } from './paper'
 export type { GeminiSchema } from './gemini'
-export type { OcrStatus, StorageBackend, CaptureResponse, QualityTier } from './capture'
-export type { CaptureApp, CaptureAppServer, CaptureExtract } from './app'
+export type {
+  OcrStatus,
+  StorageBackend,
+  CaptureResponse,
+  CaptureStreamEvent,
+  QualityTier,
+} from './capture'
+export type { CaptureApp, CaptureAppServer, CaptureExtract, Partially } from './app'

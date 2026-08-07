@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test api/_lib/*.test.ts src/lib/*.test.ts",
     "lint": "eslint src api",
     "backfill:refine": "tsx --env-file=../../.env scripts/backfill-refine.ts"
   },

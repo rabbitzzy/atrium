@@ -8,7 +8,7 @@
  */
 
 import type { CaptureAppServer } from '@atrium/schema'
-import { visionJson } from './gemini'
+import { visionJson, visionJsonStream } from './gemini'
 
 export interface PipelineOutcome {
   status: 'ok' | 'skipped' | 'failed'
@@ -45,22 +45,37 @@ export async function runPipeline(
   app: CaptureAppServer,
   image: Buffer,
   mimeType: string,
+  /**
+   * Where to send the extraction as it is written, for an app that asked for
+   * streaming (BHCS-10). Absent means nobody is watching — a replay from a
+   * script, or a client that did not open a stream — and the buffered
+   * transport is used, which is also what every app that never opts in gets.
+   */
+  onPartial?: (partial: unknown) => void,
 ): Promise<PipelineOutcome> {
   // No extraction declared — the capture is stored and nothing else. This is
   // the store-only path, expressed as an absence rather than a special case.
   if (!app.extract) return NOTHING
 
+  const call = {
+    image,
+    mimeType,
+    systemPrompt: app.extract.systemPrompt,
+    userPrompt: app.extract.userPrompt,
+    schema: app.extract.schema,
+  }
+
   let data: unknown
   let model: string
   let ms: number
   try {
-    ;({ data, model, ms } = await visionJson({
-      image,
-      mimeType,
-      systemPrompt: app.extract.systemPrompt,
-      userPrompt: app.extract.userPrompt,
-      schema: app.extract.schema,
-    }))
+    // Still no branch on kind: an app declares whether its extraction is worth
+    // watching arrive, and the platform picks the transport that says so. Both
+    // transports resolve to the same object, so everything below is shared.
+    ;({ data, model, ms } =
+      app.extract.stream && onPartial
+        ? await visionJsonStream({ ...call, onPartial })
+        : await visionJson(call))
   } catch (err) {
     // A failed pipeline must never lose the image — capture.ts has already
     // persisted it to Drive by this point, and the row is written either way.
