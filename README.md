@@ -38,9 +38,10 @@ packages/
     src/modes/    Screens, incl. #admin capture viewer (dev)
     */registry.ts The two app registries — the only files that name a kind
   app-worksheet/  App. Capture → grade → Debrief
-  app-chess/      App. Capture → transcribe moves verbatim
+  app-chess/      App. Capture → transcribe verbatim → check against the board
   app-doodle/     App. Capture → store
   schema/         Helper. Shared types + the capture app contract
+  chess-rules/    Helper. Handwritten move text resolved against the board
   skill-graph/    KC graph + BKT student state service (:3001)
   worksheet-print/ Card PDF generator with QR header (:3002)
   evaluator/      Submission evaluator — Gemini multimodal grading (:3003)
