@@ -24,15 +24,26 @@ export type Orientation = 'portrait' | 'landscape'
  * A single control rather than separate orientation and rotation settings: the
  * student answers one physical question ("which way is up?") and both the crop
  * shape and the output rotation follow from it.
- *
- * Default is sideways, because the frame is landscape (~1.24:1) and a portrait
- * letter page fits it badly — 55% of the frame area against 84% laid
- * sideways. Placing the page sideways and rotating the image upright afterward
- * is ~1.5x the area, i.e. ~1.24x linear resolution, for free.
  */
 export type PageUp = 'top' | 'right' | 'bottom' | 'left'
 
-export const PAGE_UP_DEFAULT: PageUp = 'right'
+/**
+ * How a page should be laid on this station, given what the camera can see.
+ *
+ * Measured from the frame rather than declared as a constant, because the
+ * frame's shape *is* the reason for the answer: in a landscape frame a portrait
+ * letter page fills 55% of it against 84% laid sideways — ~1.5x the area, i.e.
+ * ~1.24x linear resolution, for free — and a fallback crop sized for portrait
+ * clips the sides of a page the student sensibly placed sideways anyway. Point
+ * a portrait-framed camera at the desk and the right answer flips with it,
+ * which a hard-coded default would get wrong while still reading as correct.
+ *
+ * Falls back to a 4:3 assumption before the stream reports a size; nothing is
+ * cropped or drawn until it does.
+ */
+export function defaultPageUp(frameWidth = 4, frameHeight = 3): PageUp {
+  return frameWidth >= frameHeight ? 'right' : 'top'
+}
 
 export function orientationFor(pageUp: PageUp): Orientation {
   return pageUp === 'top' || pageUp === 'bottom' ? 'portrait' : 'landscape'

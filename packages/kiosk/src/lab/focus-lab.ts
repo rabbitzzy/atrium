@@ -8,7 +8,7 @@
  */
 
 import { focusProfile, type Region } from '../lib/focus'
-import { cropRegion, orientationFor, PAGE_UP_DEFAULT } from '../lib/paper'
+import { cropRegion, defaultPageUp, orientationFor } from '../lib/paper'
 
 const video = document.getElementById('video') as HTMLVideoElement
 const guideEl = document.getElementById('guide') as HTMLDivElement
@@ -25,9 +25,11 @@ function log(...parts: unknown[]): void {
   console.log('[lab]', line)
 }
 
-/** The production crop: letter page laid sideways in a landscape frame. */
+/** The production crop: letter page laid the way this camera's frame wants it. */
 function region(): Region {
-  return cropRegion('letter', orientationFor(PAGE_UP_DEFAULT), video.videoWidth || 4, video.videoHeight || 3)
+  const w = video.videoWidth || 4
+  const h = video.videoHeight || 3
+  return cropRegion('letter', orientationFor(defaultPageUp(w, h)), w, h)
 }
 
 function drawGuide(): void {

@@ -11,10 +11,10 @@ import {
   type StreamMode,
 } from '../lib/camera'
 import {
-  PAGE_UP_DEFAULT,
   PAPER,
   PAPER_FOR_KIND,
   cropRegion,
+  defaultPageUp,
   orientationFor,
   quarterTurnsFor,
   type PageUp,
@@ -90,9 +90,18 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [camera, setCamera] = useState<Camera | null>(null)
   const [camState, setCamState] = useState<CameraState>('probing')
   const [kind, setKind] = useState<Kind>('worksheet')
-  const [pageUp, setPageUp] = useState<PageUp>(
-    () => (localStorage.getItem('atrium.pageUp') as PageUp | null) ?? PAGE_UP_DEFAULT,
-  )
+  /*
+   * Which way up the page is, held as an override on top of what the frame
+   * implies rather than as a value in its own right.
+   *
+   * It is deliberately not persisted. How a sheet is lying on the desk is a
+   * fact about the student standing there, not a setting for the station, and
+   * storing it meant one tap on ↑ — by anyone, at any point in the past —
+   * outlived that student and quietly turned every later capture's fallback
+   * crop portrait, clipping the sides of pages laid sideways. The override
+   * lasts the visit; the next check-in starts from the frame again.
+   */
+  const [pageUpOverride, setPageUpOverride] = useState<PageUp | null>(null)
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<StreamMode | null>(null)
   const [detected, setDetected] = useState<Detection | null>(null)
@@ -101,6 +110,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const paper = PAPER_FOR_KIND[kind]!
+  const pageUp = pageUpOverride ?? defaultPageUp(frameSize?.w, frameSize?.h)
   // The fallback rectangle, shown only when the page's own edges cannot be
   // found. When they can, the outline below traces the real page instead.
   const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
@@ -466,7 +476,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               {([['top','↑'],['right','→'],['bottom','↓'],['left','←']] as const).map(([o, glyph]) => (
                 <button
                   key={o}
-                  onClick={() => { setPageUp(o); localStorage.setItem('atrium.pageUp', o) }}
+                  onClick={() => setPageUpOverride(o)}
                   title={`Top of the page points ${o}`}
                   style={{
                     ...ghostBtn,
