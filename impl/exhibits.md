@@ -1,6 +1,6 @@
 # Exhibits — Creative Contributions
 
-Package touches: `packages/skill-graph`, `packages/evaluator`, `packages/worksheet`, `packages/kiosk`  
+Package touches: `packages/skill-graph`, `packages/evaluator`, `packages/worksheet-print`, `packages/kiosk`  
 New migration: `infra/supabase/migrations/002_exhibits.sql`
 
 ## What this is

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { Student } from '@atrium/schema'
 import Admin from './modes/Admin'
 import CheckIn from './modes/CheckIn'
 import Chat from './modes/Chat'
@@ -6,14 +7,6 @@ import Capture from './modes/Capture'
 import ScanSubmit from './modes/ScanSubmit'
 
 export type KioskMode = 'checkin' | 'chat' | 'capture' | 'scan'
-
-/**
- * nameZh is optional: the BHCS roster carries first/last name only today.
- * grade is null far more often than not — admins type it free-form and most
- * rows leave it blank — so it seeds a first worksheet's difficulty and nothing
- * may depend on its presence.
- */
-export type Student = { id: string; name: string; nameZh?: string; grade?: number | null }
 
 /**
  * Hash-based, so the data viewer needs no router dependency and no SPA

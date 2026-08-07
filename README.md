@@ -33,11 +33,16 @@ graph LR
 
 ```
 packages/
-  kiosk/          React SPA — check-in, chat (Docent), capture (:5173)
+  kiosk/          Platform. React SPA — check-in, chat (Docent), capture (:5173)
     api/          Vercel serverless functions — capture ingestion, roster
     src/modes/    Screens, incl. #admin capture viewer (dev)
+    */registry.ts The two app registries — the only files that name a kind
+  app-worksheet/  App. Capture → grade → Debrief
+  app-chess/      App. Capture → transcribe moves verbatim
+  app-doodle/     App. Capture → store
+  schema/         Helper. Shared types + the capture app contract
   skill-graph/    KC graph + BKT student state service (:3001)
-  worksheet/      Card PDF generator with QR header (:3002)
+  worksheet-print/ Card PDF generator with QR header (:3002)
   evaluator/      Submission evaluator — Gemini multimodal grading (:3003)
 
 product/          Decision layer: user stories, PRD, tech spec

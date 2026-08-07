@@ -160,7 +160,7 @@ export async function startStream(deviceId: string): Promise<MediaStream> {
         const mode = streamMode(track)
         // Not fatal — a small stream still captures — but it means this station
         // is not getting the pixels it thinks it is, which is the difference
-        // between a legible worksheet and an unreadable one. The UI surfaces
+        // between a legible capture and an unreadable one. The UI surfaces
         // this too; the log is for whoever is reading a stored capture later.
         if (!mode.full) console.warn('[camera] below native resolution', mode)
       }
@@ -344,7 +344,7 @@ export async function captureFrame(
    * Sharpest tile, not the 90th percentile.
    *
    * Both the gate and the burst ranking ask about the same page, and on a
-   * part-done worksheet most of that page is blank. A percentile then measures
+   * part-done page most of that page is blank. A percentile then measures
    * blank paper: one genuinely sharp page holding a single line of pencil
    * scored p90 101 with tiles jittering between 25 and 45, which is far outside
    * the gate's tolerance — so it never locked and timed out at 10.7s on an

@@ -68,7 +68,7 @@ export interface FocusProfile {
    *
    * These two answer different questions and neither substitutes for the other.
    * p90 assumes at least a tenth of the page carries content, which a part-done
-   * worksheet does not: a genuinely sharp page holding one line of pencil
+   * page does not: a genuinely sharp page holding one line of pencil
    * measured p90 101, against 102 and 203 for two visibly blurred captures — no
    * threshold can separate those. The same three by sharpest tile are 434 / 203
    * / 239, which separates cleanly, because "is the sharpest thing on this page
@@ -85,7 +85,7 @@ export interface FocusProfile {
  * Score a region of an image source over a tiled grid.
  *
  * A single whole-image measurement is dominated by blank paper: a sharp scan of
- * a mostly-empty worksheet scores lower than a blurry scan of a dense drawing.
+ * a mostly-empty page scores lower than a blurry scan of a dense drawing.
  * Taking the 90th percentile tile asks a better question — "is the sharpest
  * content in this frame actually sharp?" — which is content-independent enough
  * to compare two shots of the same page.
@@ -175,7 +175,7 @@ export function focusScore(
  * Calibrated at the 1000px working width over the crop that actually gets
  * stored, against real captures from this station:
  *
- *   sharp    434 / 1549 / 2041 / 3953   (434 is a part-done worksheet holding a
+ *   sharp    434 / 1549 / 2041 / 3953   (434 is a part-done page holding a
  *                                        single line of pencil — legible, and
  *                                        the case a p90 threshold gets wrong)
  *   blurred  203 / 239                  (203 and 2041 are the *same* drawing

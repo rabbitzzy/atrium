@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Student } from '../App'
+import type { Student } from '@atrium/schema'
 
 interface Props {
   student: Student

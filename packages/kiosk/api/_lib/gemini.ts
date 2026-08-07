@@ -1,30 +1,15 @@
 /**
  * Gemini vision calls with schema-constrained JSON output.
  *
- * Every pipeline goes through visionJson(), so the model, timing, and error
- * shape are uniform across worksheet and chess OCR — that uniformity is what
- * lets captures.ocr_status / ocr_ms mean the same thing regardless of kind.
+ * Every capture goes through visionJson(), so the model, timing, and error
+ * shape are uniform across apps — that uniformity is what lets
+ * captures.ocr_status / ocr_ms mean the same thing regardless of kind.
  */
+
+import type { GeminiSchema } from '@atrium/schema'
 
 const MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
 const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
-
-/**
- * Gemini's schema dialect is an OpenAPI subset: uppercase type names, and
- * `nullable` instead of a union with null. It is close enough to JSON Schema
- * to be confusing, so the pipelines declare schemas in this shape directly
- * rather than converting.
- */
-export interface GeminiSchema {
-  type: 'OBJECT' | 'ARRAY' | 'STRING' | 'INTEGER' | 'NUMBER' | 'BOOLEAN'
-  properties?: Record<string, GeminiSchema>
-  items?: GeminiSchema
-  required?: string[]
-  propertyOrdering?: string[]
-  nullable?: boolean
-  enum?: string[]
-  description?: string
-}
 
 export interface VisionResult<T> {
   data: T
