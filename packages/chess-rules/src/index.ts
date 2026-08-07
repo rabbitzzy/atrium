@@ -21,6 +21,9 @@ export { isUncertain, moveKey } from './status'
 export type { MoveStatus, RawMovePair, ValidatedMove, ConfirmedMoves } from './status'
 export { nextPrompt, optionsFor, positionBefore, applyAnswer, unresolved } from './resolve'
 export type { ResolutionPrompt, MoveOption } from './resolve'
+// Reading a sheet that is still arriving (BHCS-17).
+export { LOOKAHEAD, stablePrefix, promptWhileStreaming } from './stream'
+export type { ArrivingMove } from './stream'
 
 import { validateGame } from './validate'
 import type { ConfirmedMoves, MoveStatus, RawMovePair, ValidatedMove } from './status'
