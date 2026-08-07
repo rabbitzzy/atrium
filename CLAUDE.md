@@ -66,6 +66,14 @@ The flywheel is the product. Anything that doesn't make this loop spin faster, s
 
 ## Architecture sketch (starter — revisit at week 2)
 
+> **Superseded in part by `/impl/architecture.md`.** The four-service split
+> below is still the deployment picture, but the package organization is now
+> explicitly layered: **platform** (`kiosk` — camera, storage, routing; knows
+> nothing about chess or worksheets), **apps** (one per capture kind, each
+> owning its own prompt, post-processing, and UI), and **helpers** (pure logic
+> such as chess move validation). Read that document before adding a package,
+> a capture kind, or a route.
+
 Four services. Keep them dumb and composable until you have real students using it.
 
 1. **Kiosk frontend** — a single-page app running on the shared monitor. Three modes: (a) student check-in (RFID, QR badge, or face ID — start with QR badge), (b) chat (keyboard; voice + TTS deferred to Phase 3), (c) scan-and-submit (camera triggers OCR pipeline). Built in React. Avoid heavy state — the kiosk is a thin client.

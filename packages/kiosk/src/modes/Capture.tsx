@@ -6,7 +6,9 @@ import {
   preferredCamera,
   rememberCamera,
   startStream,
+  streamMode,
   type Camera,
+  type StreamMode,
 } from '../lib/camera'
 import {
   PAGE_UP_DEFAULT,
@@ -18,6 +20,7 @@ import {
   type PageUp,
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
+import { detectPage, type Detection, type Quad } from '../lib/page-detect'
 
 interface Props {
   student: Student
@@ -25,7 +28,7 @@ interface Props {
   onCheckOut: () => void
 }
 
-type Phase = 'setup' | 'live' | 'uploading' | 'done' | 'error'
+type Phase = 'setup' | 'live' | 'focusing' | 'uploading' | 'done' | 'error'
 
 /**
  * Camera discovery is its own state machine. Collapsing these into "no
@@ -52,6 +55,10 @@ const PROBE_TIMEOUT_MS = 12_000
 
 type Kind = 'worksheet' | 'chess' | 'doodle'
 
+/** Quad as SVG polygon points in a 0–100 viewBox. */
+const quadPoints = (q: Quad): string =>
+  [q.tl, q.tr, q.br, q.bl].map((p) => `${p.x * 100},${p.y * 100}`).join(' ')
+
 const KINDS: { id: Kind; label: string; labelZh: string; icon: string; blurb: string }[] = [
   { id: 'worksheet', label: 'Worksheet', labelZh: '作业', icon: '📝', blurb: 'Graded against a rubric' },
   { id: 'chess', label: 'Chess notes', labelZh: '棋谱', icon: '♟️', blurb: 'Moves transcribed verbatim' },
@@ -73,6 +80,10 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  /** Monotonic id of the most recent open request, so stale ones can bow out. */
+  const openSeq = useRef(0)
+  /** The open currently in flight, so the next one can queue behind it. */
+  const openingRef = useRef<Promise<void> | null>(null)
 
   const [phase, setPhase] = useState<Phase>('setup')
   const [cameras, setCameras] = useState<Camera[]>([])
@@ -83,14 +94,46 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     () => (localStorage.getItem('atrium.pageUp') as PageUp | null) ?? PAGE_UP_DEFAULT,
   )
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
+  const [mode, setMode] = useState<StreamMode | null>(null)
+  const [detected, setDetected] = useState<Detection | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const paper = PAPER_FOR_KIND[kind]!
-  // One rect drives both the on-screen guide and the actual crop, so what the
-  // student lines the page up against is exactly what gets stored.
+  // The fallback rectangle, shown only when the page's own edges cannot be
+  // found. When they can, the outline below traces the real page instead.
   const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
+
+  /*
+   * Trace the detected page on the live preview.
+   *
+   * This is the honest version of the crop guide: rather than drawing a
+   * rectangle and hoping the student lines the page up inside it, it draws
+   * where the page actually is, so what is outlined is exactly what will be
+   * stored. When detection fails the outline disappears and the fixed
+   * rectangle comes back, which is also the signal that the capture will fall
+   * back to it.
+   *
+   * 4Hz, because detection costs ~100ms on a full-resolution frame and the
+   * page is not moving quickly — a student sliding paper into place is served
+   * fine by four updates a second.
+   */
+  useEffect(() => {
+    if (phase !== 'live') return
+    let cancelled = false
+    const tick = () => {
+      const video = videoRef.current
+      if (cancelled || !video?.videoWidth) return
+      setDetected(detectPage(video, video.videoWidth, video.videoHeight))
+    }
+    tick()
+    const timer = setInterval(tick, 250)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [phase])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -98,6 +141,30 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   }, [])
 
   useEffect(() => () => stopCamera(), [stopCamera])
+
+  /*
+   * Track the frame size for the whole life of the element, not just the first
+   * loadedmetadata. Chrome fires that event with an initial size and then
+   * revises videoWidth/videoHeight when the real mode negotiates — so a
+   * one-shot read left the guide sized for 640x480 while captures cropped a
+   * 3840x3104 frame. Different aspect ratios, so the rectangle the student
+   * lined the page up against was not the rectangle that got saved. `resize` is
+   * the event that fires on every subsequent revision.
+   */
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const sync = () => {
+      if (video.videoWidth) setFrameSize({ w: video.videoWidth, h: video.videoHeight })
+    }
+    sync()
+    video.addEventListener('resize', sync)
+    video.addEventListener('loadedmetadata', sync)
+    return () => {
+      video.removeEventListener('resize', sync)
+      video.removeEventListener('loadedmetadata', sync)
+    }
+  }, [])
 
   // Enumerate on mount so the operator sees real device names immediately.
   // Exposed as a callback so the failure states can offer a retry rather than
@@ -131,10 +198,46 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     void probeCameras()
   }, [probeCameras])
 
+  /**
+   * Open a camera, one at a time, newest request wins.
+   *
+   * Two overlapping opens of the same device do not both get what they asked
+   * for: the first one to reach the driver fixes the format, and the second is
+   * handed that format regardless of its constraints. The result was a kiosk
+   * silently running at 640x480 while believing it had the full sensor — which
+   * is most of what "captures varied between 2000px and 640px wide across
+   * sessions" was.
+   *
+   * StrictMode's double-invoked mount effect makes this happen on every single
+   * dev load, but it is not a dev-only problem: switching cameras twice quickly,
+   * or a retry landing on top of an in-flight open, races just as well in
+   * production.
+   *
+   * So requests queue behind each other, and any open that has been superseded
+   * by a newer one throws its stream away instead of installing it.
+   */
   async function goLive(target: Camera) {
-    try {
+    const seq = ++openSeq.current
+    const prior = openingRef.current
+
+    const run = (async () => {
+      await prior?.catch(() => {})
+      if (seq !== openSeq.current) return
+
+      // Already looking at this camera at full resolution — reuse it rather
+      // than restarting, which would cost another autofocus sweep.
+      const live = streamRef.current?.getVideoTracks()[0]
+      if (live?.readyState === 'live' && live.getSettings().deviceId === target.deviceId && streamMode(live).full) {
+        setPhase('live')
+        return
+      }
+
       stopCamera()
       const stream = await startStream(target.deviceId)
+      if (seq !== openSeq.current) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
       rememberCamera(target)
@@ -149,13 +252,18 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           setCamState('none')
           setPhase('setup')
         }
+        setMode(streamMode(videoTrack))
       }
 
       setPhase('live')
-    } catch (err) {
+    })().catch((err: unknown) => {
+      if (seq !== openSeq.current) return
       setErrMsg(`Could not open ${target.label}: ${(err as Error).message}`)
       setPhase('error')
-    }
+    })
+
+    openingRef.current = run
+    return run
   }
 
   async function shoot() {
@@ -164,25 +272,32 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     if (!video || !canvas) return
 
     const rect = cropRegion(paper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
-    setPhase('uploading')
+    setPhase('focusing')
 
     let frame
     try {
-      // Grab before releasing the camera — takePhoto() needs a live track.
+      // The upright page's aspect, which is what the deskewed output is drawn
+      // at — so a page photographed at a slight angle comes out the shape it
+      // really is, not the shape the lens saw.
       frame = await captureFrame(
         video,
         canvas,
-        streamRef.current?.getVideoTracks()[0] ?? null,
         rect,
         quarterTurnsFor(pageUp),
+        2400,
+        PAPER[paper].width / PAPER[paper].height,
       )
     } catch (err) {
       setErrMsg((err as Error).message)
       setPhase('error')
       return
-    } finally {
-      stopCamera()
     }
+    // Deliberately no stopCamera() here. Tearing the stream down after every
+    // shot was half the focus bug: reopening it restarts the camera's autofocus
+    // sweep, so every capture after the first was taken during a rack rather
+    // than after one. The stream stays live for the whole visit and only stops
+    // when this screen unmounts.
+    setPhase('uploading')
 
     // Warn, never block: a blurry capture still gets stored and OCR'd, because
     // a threshold that refuses real work is worse than a soft image.
@@ -203,8 +318,9 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
             orientation: orientationFor(pageUp),
             pageUp,
             rect,
-            via: frame.via,
             focus: frame.focus,
+            detect: frame.crop,
+            mode,
             source: { width: frame.sourceWidth, height: frame.sourceHeight },
             output: { width: frame.width, height: frame.height },
           },
@@ -222,11 +338,21 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     }
   }
 
+  // Back to the live view, not to setup: the stream is still running, and
+  // restarting it would hand the next capture the same cold autofocus sweep
+  // this screen exists to avoid. Only re-probe if the camera really is gone.
   function again() {
     setSoftFocus(null)
     setResult(null)
     setErrMsg(null)
-    setPhase('setup')
+    if (streamRef.current?.getVideoTracks()[0]?.readyState === 'live') {
+      setPhase('live')
+    } else {
+      // The camera really is gone — show the setup screen while re-probing,
+      // rather than leaving the previous result on screen with nothing happening.
+      setPhase('setup')
+      void probeCameras()
+    }
   }
 
   return (
@@ -251,7 +377,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         is worse than none. Letting the element take the video's own aspect
         keeps overlay percentages exact.
       */}
-      <div style={{ position: 'relative', display: phase === 'live' ? 'block' : 'none' }}>
+      <div style={{ position: 'relative', display: phase === 'live' || phase === 'focusing' ? 'block' : 'none' }}>
         <video
           ref={videoRef}
           autoPlay
@@ -262,7 +388,34 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           }
           style={{ display: 'block', width: '100%', borderRadius: 12, background: '#000' }}
         />
-        {guide && (
+        {/* Page found: trace its actual corners, and dim everything outside
+            them, so the lit region is literally the image that gets stored. */}
+        {detected?.quad && (
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+          >
+            <defs>
+              <mask id="pagemask">
+                <rect x="0" y="0" width="100" height="100" fill="white" />
+                <polygon points={quadPoints(detected.quad)} fill="black" />
+              </mask>
+            </defs>
+            <rect x="0" y="0" width="100" height="100" fill="rgba(0,0,0,0.42)" mask="url(#pagemask)" />
+            <polygon
+              points={quadPoints(detected.quad)}
+              fill="none"
+              stroke="rgba(90,220,140,0.95)"
+              strokeWidth="0.4"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+
+        {/* No page found — fall back to the fixed rectangle, which is also what
+            the capture itself will fall back to. */}
+        {!detected?.quad && guide && (
           <div
             style={{
               position: 'absolute',
@@ -270,7 +423,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               top: `${guide.y * 100}%`,
               width: `${guide.width * 100}%`,
               height: `${guide.height * 100}%`,
-              border: '2px solid rgba(255,255,255,0.9)',
+              border: '2px dashed rgba(255,255,255,0.75)',
               borderRadius: 4,
               boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)',
               pointerEvents: 'none',
@@ -328,11 +481,29 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               ))}
             </div>
             {frameSize && (
-              <span style={{ fontSize: 12, color: '#bbb' }}>
+              <span style={{ fontSize: 12, color: mode && !mode.full ? '#c04010' : '#bbb' }}>
                 sensor {frameSize.w}×{frameSize.h}
               </span>
             )}
           </div>
+
+          {/*
+            The camera can come up in a reduced mode and say nothing about it —
+            capabilities still advertise the full sensor, and the picture still
+            looks fine on a scaled-down preview. The only place it shows is in
+            an unreadable capture an hour later, so it has to be said out loud
+            here, while someone is standing in front of the station.
+          */}
+          {mode && !mode.full && (
+            <div style={{ padding: 12, background: '#fff0ee', border: '1px solid #ffc8c0', borderRadius: 10 }}>
+              <strong style={{ color: '#c04010', fontSize: 14 }}>Camera is running at reduced resolution</strong>
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: '#c04010' }}>
+                {mode.width}×{mode.height} instead of {mode.maxWidth}×{mode.maxHeight}. Captures will
+                be too coarse to read reliably. Unplug the camera, plug it back in, then press Retry.
+              </p>
+              <button onClick={() => void probeCameras()} style={{ ...ghostBtn, marginTop: 10 }}>Retry</button>
+            </div>
+          )}
 
           {/* Choosing the kind while the page is already framed collapses two
               screens into one — aim and decide are the same moment. */}
@@ -377,6 +548,19 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
               ))}
             </select>
           )}
+        </div>
+      )}
+
+      {/*
+        The camera takes seconds to settle and looks deceptively sharp part-way
+        through, so the wait has to be visible — otherwise a student reads the
+        frozen-looking screen as "it broke" and lifts the page mid-burst.
+      */}
+      {phase === 'focusing' && (
+        <div style={{ textAlign: 'center', padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <div style={spinner} />
+          <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Focusing — hold still 对准中…</p>
+          <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>Keep your hands out of the frame</p>
         </div>
       )}
 

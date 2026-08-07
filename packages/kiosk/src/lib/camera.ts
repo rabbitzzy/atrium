@@ -7,7 +7,9 @@
  * paper — so device selection is required, not a nicety.
  */
 
-import { PHOTO_FOCUS_TOLERANCE, focusScore } from './focus'
+import { focusProfile, waitForStableFocus, type FocusGate, type Region } from './focus'
+import { detectPage, type Point, type Quad } from './page-detect'
+import { warpQuad } from './warp'
 
 const REMEMBERED_KEY = 'atrium.camera.label'
 
@@ -56,38 +58,118 @@ export function rememberCamera(camera: Camera): void {
   localStorage.setItem(REMEMBERED_KEY, camera.label)
 }
 
+/** What the driver actually handed us, as opposed to what we asked for. */
+export interface StreamMode {
+  width: number
+  height: number
+  frameRate: number
+  /**
+   * 'none' means Chrome is passing the driver's own frames through; anything
+   * else means it synthesised the size by cropping and scaling. Diagnostic
+   * only — it is not sufficient to prove full resolution, see `full`.
+   */
+  resizeMode: string
+  /** The device's advertised maximum, for comparison. */
+  maxWidth: number
+  maxHeight: number
+  /** Are we getting every pixel the device claims to have? */
+  full: boolean
+}
+
 /**
- * Open a stream at the device's own maximum resolution.
+ * Describe what a track is really delivering.
  *
- * Asking for a fixed 3840x2160 was actively harmful: that is 16:9, the OKIOCAM
+ * `full` deliberately compares the delivered size against the advertised
+ * maximum rather than trusting `resizeMode`. This camera has been observed
+ * wedged in a 640x480 mode — after which AVFoundation listed no supported modes
+ * at all, so the hang is below the browser — while still reporting
+ * `resizeMode: 'none'` and capabilities of 3840x3104. Both of the obvious
+ * "am I at full resolution?" signals said yes, and both were wrong. Only the
+ * delivered numbers are trustworthy.
+ */
+export function streamMode(track: MediaStreamTrack): StreamMode {
+  // resizeMode is in the Media Capture spec and Chrome reports it, but it is
+  // missing from TypeScript's MediaTrackSettings.
+  const s = track.getSettings() as MediaTrackSettings & { resizeMode?: string }
+  const caps = track.getCapabilities?.() ?? {}
+  const maxWidth = caps.width?.max ?? 0
+  const maxHeight = caps.height?.max ?? 0
+  const width = s.width ?? 0
+  const height = s.height ?? 0
+  return {
+    width,
+    height,
+    frameRate: Math.round(s.frameRate ?? 0),
+    resizeMode: s.resizeMode ?? 'unknown',
+    maxWidth,
+    maxHeight,
+    full: maxWidth > 0 && width >= maxWidth && height >= maxHeight,
+  }
+}
+
+/**
+ * Open a stream at the device's true native resolution.
+ *
+ * Two traps here, both measured on this station rather than assumed:
+ *
+ * Asking for a fixed 3840x2160 was actively harmful — that is 16:9, the OKIOCAM
  * is natively 3840x3104 (~1.24:1), and requesting an aspect it does not have
- * let Chrome fall all the way back to a 640x480 mode — silently, and not every
- * time, so captures varied between 2000px and 640px wide across sessions.
+ * let Chrome fall back to a much smaller mode, silently and not every time.
  *
- * So probe first and ask for exactly what the device reports. The throwaway
- * stream is the only way to read capabilities, since they are a property of a
- * live track rather than of the device.
+ * Worse, Chrome satisfies *any* size you ask for, `exact` included: it reports
+ * a clean 2560x1440 or 3840x2160 while quietly crop-and-scaling the one real
+ * sensor mode down to fit. A successful constraint is therefore no evidence of
+ * native resolution at all. The only honest signal is `resizeMode`, which reads
+ * 'none' for the native mode and 'crop-and-scale' for every synthesised one —
+ * on this camera exactly one size, 3840x3104, comes back as 'none'.
+ *
+ * So: probe the reported maximum, ask for exactly that, and verify. The
+ * throwaway stream is the only way to read capabilities, since they are a
+ * property of a live track rather than of the device.
  */
 export async function startStream(deviceId: string): Promise<MediaStream> {
-  let ideal: { width: number; height: number } | null = null
+  let max: { width: number; height: number } | null = null
 
   try {
     const probe = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } })
     const caps = probe.getVideoTracks()[0]?.getCapabilities?.()
     probe.getTracks().forEach((t) => t.stop())
     if (caps?.width?.max && caps.height?.max) {
-      ideal = { width: caps.width.max, height: caps.height.max }
+      max = { width: caps.width.max, height: caps.height.max }
     }
   } catch {
     // Fall through to an unconstrained request rather than failing outright.
   }
 
-  return navigator.mediaDevices.getUserMedia({
-    video: {
-      deviceId: { exact: deviceId },
-      ...(ideal ? { width: { ideal: ideal.width }, height: { ideal: ideal.height } } : {}),
-    },
-  })
+  // `exact` first: if the maximums come from two different modes (they coincide
+  // on this camera, but need not in general) we want a clean failure rather
+  // than a silently downscaled composite.
+  const attempts: MediaTrackConstraints[] = []
+  if (max) {
+    attempts.push({ deviceId: { exact: deviceId }, width: { exact: max.width }, height: { exact: max.height } })
+    attempts.push({ deviceId: { exact: deviceId }, width: { ideal: max.width }, height: { ideal: max.height } })
+  }
+  attempts.push({ deviceId: { exact: deviceId } })
+
+  let lastErr: unknown
+  for (const video of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video })
+      const track = stream.getVideoTracks()[0]
+      if (track) {
+        const mode = streamMode(track)
+        // Not fatal — a small stream still captures — but it means this station
+        // is not getting the pixels it thinks it is, which is the difference
+        // between a legible worksheet and an unreadable one. The UI surfaces
+        // this too; the log is for whoever is reading a stored capture later.
+        if (!mode.full) console.warn('[camera] below native resolution', mode)
+      }
+      return stream
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Could not open the camera')
 }
 
 export interface CapturedFrame {
@@ -98,98 +180,46 @@ export interface CapturedFrame {
   /** Source frame dimensions, before cropping or downscaling. */
   sourceWidth: number
   sourceHeight: number
-  /** Which path produced the pixels — worth recording, since they differ ~6x. */
-  via: 'photo' | 'preview'
-  /** Focus score of the chosen source, and of the one rejected. */
-  focus: { chosen: number; photo: number | null; preview: number | null }
+  /** Focus of the stored crop, plus how the shutter decided to fire. */
+  focus: {
+    /** Score of the frame actually kept, measured on the cropped output. */
+    chosen: number
+    /** Every candidate in the burst, sharpest-first decision visible. */
+    candidates: number[]
+    /** Whether autofocus settled before the burst, and how long that took. */
+    gate: FocusGate
+  }
+  /** How the page was framed: found by its edges, or fallen back to the guide. */
+  crop: Framing
+}
+
+/** How one frame ended up being cropped. */
+export interface Framing {
+  method: 'detected' | 'fixed'
+  /** The corners used, when they were found. */
+  quad: Quad | null
+  /** Why detection was not used, when it was not. */
+  reason: string | null
 }
 
 /**
- * Get the best available still from a live track — measured, not assumed.
+ * Draw a crop of `source` into `canvas`, rotated upright and downscaled.
  *
- * There are two sources and neither reliably wins:
- *
- *   takePhoto() reads the sensor, giving 3840x3104 where the preview gives
- *   640x480 — but it does not wait for autofocus to converge, and here
- *   station it measured ~34x less sharp than the preview. More pixels of a
- *   blurrier page is not a better capture.
- *
- *   The preview buffer is lower resolution but reflects whatever autofocus has
- *   actually settled on.
- *
- * So take both, score both on a size-normalised metric, and keep the photo
- * unless it is materially less sharp. Ties and near-ties go to the photo
- * because its extra pixels are worth real quality — the preview only wins the
- * genuinely-defocused case. That also means the production Chromebox discovers
- * its own answer rather than inheriting a macOS measurement.
+ * Split out from captureFrame because best-of-N needs to run it repeatedly, and
+ * because scoring the result — rather than the source frame — is what makes the
+ * recorded focus number describe the image we actually store.
  */
-async function grabSource(
-  video: HTMLVideoElement,
-  track: MediaStreamTrack | null,
-): Promise<{
-  source: CanvasImageSource
-  width: number
-  height: number
-  via: 'photo' | 'preview'
-  focus: { photo: number | null; preview: number | null }
-}> {
-  const preview = {
-    source: video as CanvasImageSource,
-    width: video.videoWidth,
-    height: video.videoHeight,
-  }
-  const previewScore = preview.width ? focusScore(preview.source, preview.width, preview.height) : 0
-
-  if (track && 'ImageCapture' in window) {
-    try {
-      const blob = await new ImageCapture(track).takePhoto()
-      const bitmap = await createImageBitmap(blob)
-      const photoScore = focusScore(bitmap, bitmap.width, bitmap.height)
-
-      if (photoScore >= previewScore * PHOTO_FOCUS_TOLERANCE) {
-        return {
-          source: bitmap,
-          width: bitmap.width,
-          height: bitmap.height,
-          via: 'photo',
-          focus: { photo: photoScore, preview: previewScore },
-        }
-      }
-      bitmap.close()
-      return { ...preview, via: 'preview', focus: { photo: photoScore, preview: previewScore } }
-    } catch {
-      // Some drivers advertise ImageCapture and then refuse takePhoto.
-    }
-  }
-
-  return { ...preview, via: 'preview', focus: { photo: null, preview: previewScore } }
-}
-
-/**
- * Grab a frame, optionally cropped to a region, downscaled so the long edge is
- * at most `maxEdge`.
- *
- * 2400px keeps a full letter page around 220 DPI — ample for handwriting, a QR
- * header, and Chinese characters — while landing the base64 payload inside
- * Vercel's request body limit, which a raw 11.9MP frame would not. Cropping
- * first means those pixels land on the page rather than on the desk.
- */
-export async function captureFrame(
-  video: HTMLVideoElement,
+function drawCrop(
   canvas: HTMLCanvasElement,
-  track: MediaStreamTrack | null,
-  /** Normalized 0–1 crop, applied to whichever source we end up with. */
-  crop?: { x: number; y: number; width: number; height: number },
-  /** Quarter-turns clockwise to bring the page upright after cropping. */
-  quarterTurns: 0 | 1 | 2 | 3 = 0,
-  maxEdge = 2400,
-): Promise<CapturedFrame> {
-  const { source, width, height, via, focus } = await grabSource(video, track)
-  if (!width || !height) throw new Error('Camera produced an empty frame')
-
-  // Crop in normalized space rather than pixels, because the photo and the
-  // preview have different dimensions — a pixel rect measured against the
-  // preview would be meaningless against a 6x larger still.
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+  crop: Region | undefined,
+  quarterTurns: 0 | 1 | 2 | 3,
+  maxEdge: number,
+): void {
+  // Crop in normalized space rather than pixels, so the rect stays meaningful
+  // whatever the source resolution turns out to be.
   const region = crop
     ? {
         sx: Math.round(crop.x * width),
@@ -217,7 +247,151 @@ export async function captureFrame(
   ctx.rotate((quarterTurns * Math.PI) / 2)
   ctx.drawImage(source, region.sx, region.sy, region.sw, region.sh, -drawW / 2, -drawH / 2, drawW, drawH)
   ctx.restore()
-  if (source instanceof ImageBitmap) source.close()
+}
+
+/**
+ * Grab a frame, cropped to the page, upright, downscaled so the long edge is at
+ * most `maxEdge`.
+ *
+ * 2400px keeps a full letter page around 220 DPI — ample for handwriting, a QR
+ * header, and Chinese characters — while landing the base64 payload inside
+ * Vercel's request body limit, which a raw 11.9MP frame would not. Cropping
+ * first means those pixels land on the page rather than on the desk.
+ *
+ * The pixels come from the preview, and only from the preview.
+ * ImageCapture.takePhoto() used to be consulted here on the belief that it read
+ * the sensor at a higher resolution than the preview offered. Measured on this
+ * station, it does not: getPhotoCapabilities() reports imageWidth min = max =
+ * 3840 and imageHeight min = max = 3104, which is exactly what the preview
+ * already delivers. What takePhoto() does cost is ~3.2s per call and a camera
+ * reconfiguration that restarts the autofocus sweep — a settled preview
+ * measured 1684 before a takePhoto() and 119 immediately after, taking a
+ * further ~2s to recover. It was buying nothing and destroying focus, so it is
+ * gone.
+ */
+export async function captureFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  /** Fallback crop, used when the page's own edges cannot be found. */
+  crop?: Region,
+  /** Quarter-turns clockwise to bring the page upright. */
+  quarterTurns: 0 | 1 | 2 | 3 = 0,
+  maxEdge = 2400,
+  /** The paper's portrait aspect (short edge / long edge), e.g. 8.5/11. */
+  paperAspect?: number,
+): Promise<CapturedFrame> {
+  const width = video.videoWidth
+  const height = video.videoHeight
+  if (!width || !height) throw new Error('Camera produced an empty frame')
+
+  // Counter-clockwise turns bring the page upright; the caller thinks in
+  // clockwise ones because that is how the on-screen control reads.
+  const ccwTurns = (4 - (quarterTurns % 4)) % 4
+
+  /**
+   * Size the deskewed output from the page we actually found.
+   *
+   * Whether the sheet is portrait or landscape is measured, not declared. A
+   * student can lay a letter page either way and draw on it either way, and the
+   * pageUp control only says which edge is the top — it cannot distinguish "a
+   * portrait page turned sideways" from "a landscape page the right way up".
+   * Measuring the quad settles it, and snapping to the paper's true ratio
+   * corrects the residual aspect error the lens introduces.
+   */
+  const outSize = (quad: Quad) => {
+    const side = (a: Point, b: Point) =>
+      Math.hypot((a.x - b.x) * width, (a.y - b.y) * height)
+    const quadW = (side(quad.tl, quad.tr) + side(quad.bl, quad.br)) / 2
+    const quadH = (side(quad.tl, quad.bl) + side(quad.tr, quad.br)) / 2
+
+    // The quad is measured in the frame; a quarter turn swaps its axes.
+    const upright = ccwTurns % 2 === 1 ? quadH / quadW : quadW / quadH
+    const portrait = paperAspect ?? upright
+    const landscape = 1 / portrait
+    const aspect =
+      Math.abs(upright - portrait) <= Math.abs(upright - landscape) ? portrait : landscape
+
+    return aspect >= 1
+      ? { w: maxEdge, h: Math.round(maxEdge / aspect) }
+      : { w: Math.round(maxEdge * aspect), h: maxEdge }
+  }
+
+  // Scratch canvas so a candidate can be scored at full output geometry without
+  // disturbing the best frame kept so far.
+  const scratch = document.createElement('canvas')
+
+  /**
+   * Frame one candidate. Detection is re-run per candidate rather than once,
+   * because a student's hand leaving the frame between the gate and the last
+   * shot changes what the page looks like — and the frame we keep should be
+   * cropped by its own geometry, not by an earlier frame's.
+   */
+  const frameOne = (
+    /** Corners already found this capture, to skip re-detecting a still page. */
+    reuse?: { quad: Quad | null; reason: string | null },
+  ): Framing => {
+    const found = reuse ?? detectPage(video, width, height)
+    if (found.quad) {
+      const { w, h } = outSize(found.quad)
+      warpQuad(scratch, video, width, height, found.quad, ccwTurns, w, h)
+      return { method: 'detected', quad: found.quad, reason: null }
+    }
+    drawCrop(scratch, video, width, height, crop, quarterTurns, maxEdge)
+    return { method: 'fixed', quad: null, reason: found.reason }
+  }
+
+  /**
+   * Sharpest tile, not the 90th percentile.
+   *
+   * Both the gate and the burst ranking ask about the same page, and on a
+   * part-done worksheet most of that page is blank. A percentile then measures
+   * blank paper: one genuinely sharp page holding a single line of pencil
+   * scored p90 101 with tiles jittering between 25 and 45, which is far outside
+   * the gate's tolerance — so it never locked and timed out at 10.7s on an
+   * image that was perfectly readable. The sharpest tile scored 434 on the same
+   * frame, and is steady, because it tracks the content rather than the paper.
+   */
+  const measure = (reuse?: Framing): number => {
+    frameOne(reuse)
+    return focusProfile(scratch, scratch.width, scratch.height).best
+  }
+
+  // 1. Let autofocus settle. On a stream that has been live a while this costs
+  //    the length of the stability window (~1.2s); on a cold one it waits out
+  //    the sweep, ~6s.
+  //
+  //    The page is stationary through the wait — that is the entire premise of
+  //    waiting — so its corners are found once and reused for every sample.
+  //    Re-detecting each time cost ~100ms a sample and stretched a 1.2s gate to
+  //    5.5s, which is time a student spends staring at a spinner for no gain.
+  const settled = frameOne()
+  const gate = await waitForStableFocus(() => measure(settled))
+
+  // 2. Best of N. The gate makes a badly defocused frame unlikely; the burst
+  //    covers the residual jitter, and only the winner is ever JPEG-encoded.
+  const candidates: number[] = []
+  let best = -1
+  let bestCrop: Framing = { method: 'fixed', quad: null, reason: 'no candidate' }
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not get a 2D canvas context')
+
+  for (let i = 0; i < 4; i++) {
+    // Detected afresh per candidate, unlike the gate: a hand withdrawing between
+    // the gate releasing and the last shot changes where the page is, and the
+    // frame we keep should be cropped by its own geometry rather than by one
+    // measured seconds earlier.
+    const framing = frameOne()
+    const score = focusProfile(scratch, scratch.width, scratch.height).best
+    candidates.push(score)
+    if (score > best) {
+      best = score
+      bestCrop = framing
+      canvas.width = scratch.width
+      canvas.height = scratch.height
+      ctx.drawImage(scratch, 0, 0)
+    }
+    if (i < 3) await new Promise((r) => setTimeout(r, 150))
+  }
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
   return {
@@ -227,7 +401,7 @@ export async function captureFrame(
     height: canvas.height,
     sourceWidth: width,
     sourceHeight: height,
-    via,
-    focus: { chosen: (via === 'photo' ? focus.photo : focus.preview) ?? 0, ...focus },
+    focus: { chosen: best, candidates, gate },
+    crop: bestCrop,
   }
 }
