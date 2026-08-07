@@ -14,6 +14,9 @@ importers:
 
   packages/kiosk:
     dependencies:
+      '@atrium/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@supabase/supabase-js':
         specifier: ^2.45.0
         version: 2.105.1
@@ -45,6 +48,15 @@ importers:
       vite:
         specifier: ^5.3.4
         version: 5.4.21(@types/node@22.19.17)
+
+  packages/schema:
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.3
+        version: 18.3.28
+      typescript:
+        specifier: ^5.5.3
+        version: 5.9.3
 
   packages/skill-graph:
     dependencies:

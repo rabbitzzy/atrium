@@ -5,7 +5,8 @@
  * without branching on kind.
  */
 
-import { visionJson, type GeminiSchema } from './gemini'
+import type { GeminiSchema } from '@atrium/schema'
+import { visionJson } from './gemini'
 
 export const CAPTURE_KINDS = ['worksheet', 'chess', 'doodle'] as const
 export type CaptureKind = (typeof CAPTURE_KINDS)[number]

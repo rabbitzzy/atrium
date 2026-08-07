@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Student } from '../App'
+import type { Student } from '@atrium/schema'
 
 interface Props {
   onCheckIn: (student: Student) => void
