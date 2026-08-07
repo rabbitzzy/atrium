@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atrium — Camera Focus Lab</title>
+    <style>
+      body { font-family: 'DM Sans', system-ui, sans-serif; margin: 0; padding: 16px; background: #14141c; color: #e8e6e3; }
+      h1 { font-size: 16px; margin: 0 0 12px; font-weight: 600; }
+      #stage { position: relative; display: inline-block; background: #000; }
+      video { display: block; max-width: 900px; width: 100%; }
+      #guide { position: absolute; border: 2px solid rgba(90,220,140,0.95); pointer-events: none; }
+      #readout { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre; margin-top: 10px; color: #9fd; }
+      #log { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; margin-top: 10px; max-height: 40vh; overflow: auto; color: #bbb; }
+      button { font: inherit; font-size: 13px; padding: 6px 12px; margin: 2px; border-radius: 8px; border: 1px solid #444; background: #22222e; color: #e8e6e3; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>Camera Focus Lab — dev only</h1>
+    <div id="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="guide"></div>
+    </div>
+    <div id="controls">
+      <button onclick="lab.open().then(r=>lab.print(r))">open camera</button>
+      <button onclick="lab.probeResolutions().then(r=>lab.print(r))">probe resolutions</button>
+      <button onclick="lab.watch()">live score</button>
+      <button onclick="lab.stopWatch()">stop</button>
+      <button onclick="lab.series({seconds:20}).then(r=>lab.print(r.summary))">20s series</button>
+      <button onclick="lab.photoBurst(5).then(r=>lab.print(r))">photo burst</button>
+    </div>
+    <div id="readout">idle</div>
+    <div id="log"></div>
+    <script type="module" src="/src/lab/focus-lab.ts"></script>
+  </body>
+</html>

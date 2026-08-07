@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { FOCUS_WARN_BELOW } from '../lib/focus'
 
 /**
  * Dev-only data viewer, reachable at #admin.
@@ -19,7 +20,14 @@ interface Capture {
   kind: 'worksheet' | 'chess' | 'doodle'
   storage_backend: 'local' | 'drive'
   storage_url: string
-  crop_json: { paper?: string; orientation?: string; via?: string; focus?: { chosen: number; photo: number | null; preview: number | null }; output?: { width: number; height: number }; source?: { width: number; height: number } } | null
+  crop_json: {
+    paper?: string
+    orientation?: string
+    focus?: { chosen: number; candidates?: number[]; gate?: { locked: boolean; ms: number } }
+    mode?: { resizeMode: string; full?: boolean; maxWidth?: number; maxHeight?: number }
+    output?: { width: number; height: number }
+    source?: { width: number; height: number }
+  } | null
   ocr_json: unknown
   ocr_status: 'pending' | 'ok' | 'failed' | 'skipped'
   ocr_error: string | null
@@ -132,16 +140,34 @@ export default function Admin() {
                           {c.crop_json.focus && (
                             <>
                               <dt>focus</dt>
-                              <dd style={{ color: c.crop_json.focus.chosen < 250 ? '#c04010' : '#1a7a4a' }}>
-                                {c.crop_json.focus.chosen} via {c.crop_json.via}
-                                {' '}(photo {c.crop_json.focus.photo ?? '—'} / preview {c.crop_json.focus.preview ?? '—'})
+                              <dd style={{ color: c.crop_json.focus.chosen < FOCUS_WARN_BELOW ? '#c04010' : '#1a7a4a' }}>
+                                {c.crop_json.focus.chosen}
+                                {c.crop_json.focus.candidates && ` (burst ${c.crop_json.focus.candidates.join('/')})`}
                               </dd>
+                              {/* A capture that fired on a timeout rather than a
+                                  settled lens is the one to distrust first. */}
+                              {c.crop_json.focus.gate && (
+                                <>
+                                  <dt>autofocus</dt>
+                                  <dd style={{ color: c.crop_json.focus.gate.locked ? '#1a7a4a' : '#c04010' }}>
+                                    {c.crop_json.focus.gate.locked ? 'settled' : 'gave up'} after{' '}
+                                    {(c.crop_json.focus.gate.ms / 1000).toFixed(1)}s
+                                  </dd>
+                                </>
+                              )}
                             </>
                           )}
                           <dt>pixels</dt>
                           <dd>
                             {c.crop_json.source?.width}×{c.crop_json.source?.height} sensor →{' '}
                             {c.crop_json.output?.width}×{c.crop_json.output?.height} stored
+                            {/* Only flag a shortfall we can actually prove: `full`
+                                is absent on captures stored before it existed. */}
+                            {c.crop_json.mode?.full === false && (
+                              <span style={{ color: '#c04010' }}>
+                                {' '}· below the camera's {c.crop_json.mode.maxWidth}×{c.crop_json.mode.maxHeight}
+                              </span>
+                            )}
                           </dd>
                         </>
                       )}
