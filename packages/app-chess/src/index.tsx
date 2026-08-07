@@ -5,14 +5,41 @@
  * a child who wrote `bc4` should see that the system read it as Bc4 and did not
  * silently decide they had written something else.
  *
- * The per-move status is the confidence signal BHCS-11 will threshold on to
- * decide which moves to stop and ask about. It is surfaced here already so the
- * signal is visible to whoever is standing at the station, rather than sitting
- * unread in a column until the board gets built.
+ * The per-move status drives two things: what is shown here, and which move
+ * the `Resolve` step stops to ask about. A move a student settled themselves
+ * is marked as theirs — the point is never to imply the machine read something
+ * it did not.
  */
 
+import { Suspense, lazy } from 'react'
 import type { CaptureApp } from '@atrium/schema'
-import type { MoveStatus, ValidatedMove, ValidatedScoresheet } from '@atrium/chess-rules'
+// From the `/status` entry point, not the package root: the root pulls in
+// chess.js, and this module is loaded by every student at the kiosk whether or
+// not they came with a scoresheet.
+import { isUncertain, type MoveStatus, type ValidatedMove } from '@atrium/chess-rules/status'
+import type { ValidatedScoresheet } from '@atrium/chess-rules'
+
+/**
+ * The board arrives only when a scoresheet actually needs one.
+ *
+ * `react-chessboard` and `chess.js` together are most of this app's weight,
+ * and the student who came to submit a worksheet should not be downloading a
+ * chessboard. Splitting here keeps the kiosk's first paint the size it was
+ * before this feature existed; the chunk loads while the student is reading
+ * "you wrote 6xb2".
+ */
+const LazyResolve = lazy(() => import('./Resolve').then((m) => ({ default: m.Resolve })))
+
+function Resolve(props: {
+  result: ValidatedScoresheet
+  onResolved: (r: ValidatedScoresheet) => void
+}) {
+  return (
+    <Suspense fallback={<div style={{ ...card, color: '#999' }}>Setting up the board…</div>}>
+      <LazyResolve {...props} />
+    </Suspense>
+  )
+}
 
 /**
  * How each status presents itself.
@@ -21,6 +48,7 @@ import type { MoveStatus, ValidatedMove, ValidatedScoresheet } from '@atrium/che
  * decorating all of them would bury the two that are not.
  */
 const STATUS_STYLE: Record<MoveStatus, { mark: string; color: string; label: string }> = {
+  confirmed: { mark: '✓', color: '#1a7a4a', label: 'you confirmed' },
   ok: { mark: '', color: '#bbb', label: 'read as written' },
   normalized: { mark: '~', color: '#1a6bb5', label: 'tidied up' },
   corrected: { mark: '!', color: '#c07000', label: 'corrected against the board' },
@@ -30,7 +58,15 @@ const STATUS_STYLE: Record<MoveStatus, { mark: string; color: string; label: str
 }
 
 /** Statuses worth counting out loud, in the order a reader should meet them. */
-const TALLY_ORDER: MoveStatus[] = ['ok', 'normalized', 'corrected', 'inferred', 'missing', 'failed']
+const TALLY_ORDER: MoveStatus[] = [
+  'confirmed',
+  'ok',
+  'normalized',
+  'corrected',
+  'inferred',
+  'missing',
+  'failed',
+]
 
 function MoveRow({ move }: { move: ValidatedMove }) {
   const style = STATUS_STYLE[move.status]
@@ -103,6 +139,14 @@ export const chessApp: CaptureApp<ValidatedScoresheet> = {
   paper: 'halfLetter',
   waitHint: 'Usually 5–20 seconds',
   ResultView: ChessResult,
+
+  /**
+   * Only interrupt when there is something a student can actually settle.
+   * A scoresheet that read cleanly goes straight to the result — the board is
+   * a repair tool, not a ceremony.
+   */
+  needsResolve: (result) => result.moves.some(isUncertain),
+  Resolve,
 }
 
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }

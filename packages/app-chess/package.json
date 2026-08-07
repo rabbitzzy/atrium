@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@atrium/schema": "workspace:*",
-    "@atrium/chess-rules": "workspace:*"
+    "@atrium/chess-rules": "workspace:*",
+    "react-chessboard": "^4.7.3"
   },
   "peerDependencies": {
     "react": "^18.3.1"
