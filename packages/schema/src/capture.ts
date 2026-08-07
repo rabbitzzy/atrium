@@ -32,3 +32,23 @@ export interface CaptureResponse {
   ocrMs: number | null
   ocr: unknown
 }
+
+/**
+ * The same answer in instalments, for an app whose `extract.stream` is set
+ * (BHCS-10). Sent as server-sent events from the same POST /api/capture; an
+ * app that has not opted in gets the single JSON body above and never sees
+ * any of this.
+ *
+ * The sequence is `stored`, then any number of `partial`s, then exactly one
+ * `done` or `error`. A stream that ends without either was cut off — and
+ * `stored` having arrived is what tells the kiosk the image survived it.
+ */
+export type CaptureStreamEvent =
+  /** The pixels are safe and the row exists. Everything after this is recoverable. */
+  | { event: 'stored'; data: Pick<CaptureResponse, 'captureId' | 'fileUrl' | 'storageBackend'> }
+  /** The extraction so far, in the handling app's own shape with fields missing. */
+  | { event: 'partial'; data: unknown }
+  /** Identical to what the buffered path would have returned. */
+  | { event: 'done'; data: CaptureResponse }
+  /** The request failed after the response had already started. */
+  | { event: 'error'; data: { error: string } }

@@ -20,6 +20,7 @@ import {
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { detectPage, type Detection, type Quad } from '../lib/page-detect'
+import { isEventStream, readCaptureStream } from '../lib/capture-stream'
 import { APPS, type AnyCaptureApp } from '../platform/registry'
 
 interface Props {
@@ -93,6 +94,22 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const [detected, setDetected] = useState<Detection | null>(null)
   const [softFocus, setSoftFocus] = useState<number | null>(null)
   const [result, setResult] = useState<CaptureResponse | null>(null)
+  /**
+   * The frame that was just sent, as a data URL.
+   *
+   * It costs nothing — the pixels are already in this tab, and it is the one
+   * thing on these screens that needs no network at all — so it goes up the
+   * instant the shutter fires and stays up through the result. A student who
+   * can see their own page knows the machine has it, which is most of what
+   * they were waiting to find out.
+   */
+  const [shot, setShot] = useState<string | null>(null)
+  /**
+   * The reading so far, for an app that streams. Held as `unknown` like every
+   * other payload the platform carries: it is the app's shape, and only the
+   * app's own StreamView is allowed to look inside it.
+   */
+  const [partial, setPartial] = useState<unknown>(null)
   /** Capture id whose resolution step is finished, so it is not offered twice. */
   const [resolvedFor, setResolvedFor] = useState<string | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -281,6 +298,8 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     if (!video || !canvas) return
 
     const rect = cropRegion(paper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
+    setPartial(null)
+    setShot(null)
     setPhase('focusing')
 
     let frame
@@ -301,6 +320,11 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       setPhase('error')
       return
     }
+    // On screen before the upload has even started: this is the deskewed,
+    // cropped frame itself, so it is also an honest preview of exactly what
+    // was sent — not a thumbnail of what we hope was sent.
+    setShot(`data:${frame.mimeType};base64,${frame.base64}`)
+
     // Deliberately no stopCamera() here. Tearing the stream down after every
     // shot was half the focus bug: reopening it restarts the camera's autofocus
     // sweep, so every capture after the first was taken during a rack rather
@@ -339,7 +363,14 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         const detail = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(detail.error ?? `Capture failed (${res.status})`)
       }
-      setResult((await res.json()) as CaptureResponse)
+      // Which of the two the endpoint chose is the app's declaration, made
+      // server-side; the kiosk reads it off the response rather than deciding.
+      // Both paths end at the same CaptureResponse.
+      setResult(
+        isEventStream(res)
+          ? await readCaptureStream(res, setPartial)
+          : ((await res.json()) as CaptureResponse),
+      )
       setPhase('done')
     } catch (err) {
       setErrMsg((err as Error).message)
@@ -375,6 +406,8 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   function again() {
     setSoftFocus(null)
     setResult(null)
+    setPartial(null)
+    setShot(null)
     setResolvedFor(null)
     setErrMsg(null)
     if (streamRef.current?.getVideoTracks()[0]?.readyState === 'live') {
@@ -387,9 +420,28 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     }
   }
 
+  /*
+   * The page you just took, beside what is being made of it. Both screens
+   * after the shutter use it, which is also why the page gets wider here —
+   * a Debrief squeezed into half of 760px reads worse than no split at all.
+   */
+  const split = phase === 'uploading' || (phase === 'done' && result !== null && !needsResolve)
+
   return (
-    <div style={page}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div style={{ ...page, maxWidth: split ? 1080 : 760 }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        /*
+          One column on a laptop or a portrait panel, two once there is room
+          for both to be readable. The image is sticky rather than scrolling
+          away, so a long Debrief is still read against the page it is about.
+        */
+        .capture-split { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+        .capture-shot { position: sticky; top: 24px; align-self: start; }
+        @media (min-width: 880px) {
+          .capture-split { grid-template-columns: 320px minmax(0, 1fr); }
+        }
+      `}</style>
 
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -596,11 +648,32 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         </div>
       )}
 
+      {/*
+        A spinner until there is something to read, and then the reading
+        itself. The swap is the whole feature: the wait is not shortened, it is
+        spent on the first question while the fourth is still arriving.
+
+        Nothing here knows what is in `partial` — the app renders it, exactly
+        as it renders the finished result.
+      */}
       {phase === 'uploading' && (
-        <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-          <div style={spinner} />
-          <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Saving and reading… 正在保存…</p>
-          <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>{app.waitHint}</p>
+        <div className="capture-split">
+          <CapturedShot src={shot} />
+          {partial && app.StreamView ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <app.StreamView partial={partial} />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ ...spinner, width: 18, height: 18, borderWidth: 2 }} />
+                <span style={{ fontSize: 13, color: '#aaa' }}>Still reading… 还在看…</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              <div style={spinner} />
+              <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Saving and reading… 正在保存…</p>
+              <p style={{ fontSize: 13, color: '#aaa', margin: 0 }}>{app.waitHint}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -623,23 +696,62 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
       )}
 
       {phase === 'done' && result && !needsResolve && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {softFocus !== null && (
-            <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
-              <strong style={{ color: '#8a6a00', fontSize: 14 }}>This looks out of focus</strong>
-              <p style={{ margin: '6px 0 0', fontSize: 13, color: '#8a6a00' }}>
-                Saved anyway, but the reading may be unreliable. Let the camera
-                settle for a moment, then capture again.
-              </p>
-            </div>
-          )}
-          <ResultCard app={app} result={result} student={student} />
-          <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
-            🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}
-          </a>
-          <button onClick={again} style={bigBtn}>Capture Another</button>
-          <button onClick={onDone} style={ghostBtn}>Done</button>
+        <div className="capture-split">
+          {/* Everything about the image, next to the image: the focus warning
+              is a statement about this picture, and it is far easier to agree
+              with while looking at it. */}
+          <CapturedShot src={shot} softFocus={softFocus} result={result} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <ResultCard app={app} result={result} student={student} />
+            <button onClick={again} style={bigBtn}>Capture Another</button>
+            <button onClick={onDone} style={ghostBtn}>Done</button>
+          </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── The page itself ──────────────────────────────────────────────────────────
+
+/**
+ * The captured frame, shown from the moment it exists.
+ *
+ * Nothing here waits on anything: the pixels are local, so this column is
+ * filled while the upload is still in flight. `result` only adds the link to
+ * the stored original, which is the one part that needs the round trip.
+ */
+function CapturedShot({
+  src,
+  softFocus = null,
+  result,
+}: {
+  src: string | null
+  softFocus?: number | null
+  result?: CaptureResponse
+}) {
+  if (!src) return <div />
+
+  return (
+    <div className="capture-shot" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <img
+        src={src}
+        alt="The page you just captured"
+        style={{ display: 'block', width: '100%', borderRadius: 12, border: '1px solid #e6e3de', background: '#fff' }}
+      />
+      {softFocus !== null && (
+        <div style={{ padding: 14, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 10 }}>
+          <strong style={{ color: '#8a6a00', fontSize: 14 }}>This looks out of focus</strong>
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: '#8a6a00' }}>
+            Saved anyway, but the reading may be unreliable. Let the camera
+            settle for a moment, then capture again.
+          </p>
+        </div>
+      )}
+      {result && (
+        <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
+          🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}
+        </a>
       )}
     </div>
   )

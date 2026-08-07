@@ -39,9 +39,28 @@ export interface CaptureExtract {
   /**
    * Opt into streamed extraction (BHCS-10). Nothing else about the app
    * changes; the platform picks the transport.
+   *
+   * What the app gets for it is `CaptureApp.StreamView` being rendered with
+   * the extraction as it is written. What is stored is identical either way —
+   * streaming changes when the kiosk hears, never what lands in the row.
    */
   stream?: boolean
 }
+
+/**
+ * The same shape, mid-arrival: every field optional, all the way down.
+ *
+ * This is what a schema-constrained response looks like before it is finished.
+ * Arrays are shorter than they will be and their last element is missing
+ * fields, but nothing present is ever wrong — a value only appears once it can
+ * no longer change. So a `StreamView` renders the fields it has and leaves
+ * space for the rest; it never has to unrender anything.
+ */
+export type Partially<T> = T extends (infer E)[]
+  ? Partially<E>[]
+  : T extends object
+    ? { [K in keyof T]?: Partially<T[K]> }
+    : T
 
 /**
  * The half that runs in the capture function.
@@ -91,6 +110,20 @@ export interface CaptureApp<Result = unknown> {
 
   /** Replaces the branch in the platform's old ResultCard. */
   ResultView: FC<{ result: Result; student: Student }>
+
+  /**
+   * What the student watches while a streamed extraction arrives (BHCS-10).
+   * Only ever rendered for an app whose `extract.stream` is set; without it a
+   * streaming app simply spins like any other, so the two halves can land
+   * separately.
+   *
+   * It is a second component rather than a flag on `ResultView` because it is
+   * a different job: the Debrief is a finished artifact a child reads, and
+   * this is the reading-in-progress. Conflating them means every result view
+   * defending against absent fields forever, to serve a state that lasts
+   * fifteen seconds.
+   */
+  StreamView?: FC<{ partial: Partially<Result> }>
 
   /**
    * Optional human-in-the-loop step between the result arriving and the

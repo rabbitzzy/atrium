@@ -51,5 +51,15 @@ export const worksheetServer: CaptureAppServer = {
     schema: WORKSHEET_SCHEMA,
     systemPrompt: WORKSHEET_PROMPT,
     userPrompt: 'Evaluate this completed worksheet.',
+    /*
+     * BHCS-10. A graded worksheet is the one capture kind whose result is a
+     * document a child sits and reads, so it is the one where the arrival
+     * order is worth anything: `propertyOrdering` puts `questions` first, so
+     * question 1 is on screen while the summary is still being written.
+     *
+     * The judgement stays whole. What streams is the order the model already
+     * writes in, not a second, hastier pass.
+     */
+    stream: true,
   },
 }
