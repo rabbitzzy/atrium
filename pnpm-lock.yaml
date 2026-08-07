@@ -12,8 +12,65 @@ importers:
         specifier: ^5.5.3
         version: 5.9.3
 
+  packages/app-chess:
+    dependencies:
+      '@atrium/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.3
+        version: 18.3.28
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: ^5.5.3
+        version: 5.9.3
+
+  packages/app-doodle:
+    dependencies:
+      '@atrium/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.3
+        version: 18.3.28
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: ^5.5.3
+        version: 5.9.3
+
+  packages/app-worksheet:
+    dependencies:
+      '@atrium/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.3
+        version: 18.3.28
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: ^5.5.3
+        version: 5.9.3
+
   packages/kiosk:
     dependencies:
+      '@atrium/app-chess':
+        specifier: workspace:*
+        version: link:../app-chess
+      '@atrium/app-doodle':
+        specifier: workspace:*
+        version: link:../app-doodle
+      '@atrium/app-worksheet':
+        specifier: workspace:*
+        version: link:../app-worksheet
       '@atrium/schema':
         specifier: workspace:*
         version: link:../schema

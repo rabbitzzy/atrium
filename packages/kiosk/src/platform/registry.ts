@@ -11,9 +11,9 @@
  */
 
 import type { CaptureApp } from '@atrium/schema'
-import { worksheetApp } from '../apps/worksheet'
-import { chessApp } from '../apps/chess'
-import { doodleApp } from '../apps/doodle'
+import { worksheetApp } from '@atrium/app-worksheet'
+import { chessApp } from '@atrium/app-chess'
+import { doodleApp } from '@atrium/app-doodle'
 
 /**
  * `any` on purpose: the registry is heterogeneous — each app narrows Result to
