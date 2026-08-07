@@ -54,7 +54,7 @@ pnpm-debug.log*
 *.tsbuildinfo
 
 # Generated PDFs / worksheet outputs
-packages/worksheet/output/
+packages/worksheet-print/output/
 
 # Test coverage
 coverage/

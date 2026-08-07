@@ -1,6 +1,6 @@
 # Worksheet Generator — Implementation Plan
 
-Package: `packages/worksheet`  
+Package: `packages/worksheet-print`  
 Tech: Hono + Node, TypeScript, Anthropic SDK, Playwright, QRCode  
 Port: 3002
 

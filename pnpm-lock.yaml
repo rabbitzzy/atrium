@@ -77,7 +77,7 @@ importers:
         specifier: ^2.0.5
         version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@22.19.17)
 
-  packages/worksheet:
+  packages/worksheet-print:
     dependencies:
       '@hono/node-server':
         specifier: ^1.12.0
