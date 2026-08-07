@@ -22,32 +22,10 @@
 import { Chess, type Move } from 'chess.js'
 import { generateCandidates } from './normalize'
 import { sanSimilarity } from './similarity'
+import { moveKey, type ConfirmedMoves, type MoveStatus, type RawMovePair, type ValidatedMove } from './status'
 
-/**
- * How a move was resolved, in descending order of confidence.
- *
- * `missing` and `failed` are different failures: `missing` is an empty cell the
- * board could not fill in, `failed` is text that could not be made into any
- * legal move. Both are for a human; only one is the child's fault.
- */
-export type MoveStatus = 'ok' | 'normalized' | 'corrected' | 'inferred' | 'missing' | 'failed'
-
-export interface RawMovePair {
-  n: number
-  w?: string | null
-  b?: string | null
-}
-
-export interface ValidatedMove {
-  n: number
-  side: 'white' | 'black'
-  /** Exactly what the child wrote. Never rewritten. */
-  raw: string | null
-  /** The resolved move in standard algebraic notation, or null if unresolved. */
-  san: string | null
-  uci: string | null
-  status: MoveStatus
-}
+export { isUncertain, moveKey } from './status'
+export type { MoveStatus, RawMovePair, ValidatedMove, ConfirmedMoves } from './status'
 
 /**
  * python-chess's SAN grammar, which is looser than canonical SAN on purpose:
@@ -261,7 +239,10 @@ export function bestLegalMove(
  * Stops at checkmate or stalemate: anything written past the end of the game is
  * not a move, and pretending to resolve it would invent history.
  */
-export function validateGame(rawMoves: RawMovePair[]): ValidatedMove[] {
+export function validateGame(
+  rawMoves: RawMovePair[],
+  confirmed: ConfirmedMoves = {},
+): ValidatedMove[] {
   const board = new Chess()
   const results: ValidatedMove[] = []
 
@@ -274,6 +255,22 @@ export function validateGame(rawMoves: RawMovePair[]): ValidatedMove[] {
   for (let idx = 0; idx < flat.length; idx++) {
     if (board.isGameOver()) break
     const { n, side, raw } = flat[idx]!
+
+    // A human has told us what this move was. Their answer outranks every
+    // pass below, and is tagged so a teacher can always tell a student's
+    // answer from the machine's guess.
+    const answer = confirmed[moveKey(n, side)]
+    if (answer) {
+      const chosen = parseSan(legalMoves(board), answer)
+      if (chosen) {
+        play(board, chosen)
+        results.push({ n, side, raw, san: chosen.san, uci: chosen.lan, status: 'confirmed' })
+        continue
+      }
+      // An answer that is not legal here means the position drifted under it —
+      // usually because an *earlier* answer changed. Fall through and resolve
+      // it normally rather than trusting a stale confirmation.
+    }
 
     if (raw === null) {
       // An empty cell with exactly one legal reply writes itself. Any other

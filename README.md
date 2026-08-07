@@ -38,7 +38,7 @@ packages/
     src/modes/    Screens, incl. #admin capture viewer (dev)
     */registry.ts The two app registries — the only files that name a kind
   app-worksheet/  App. Capture → grade → Debrief
-  app-chess/      App. Capture → transcribe verbatim → check against the board
+  app-chess/      App. Capture → transcribe → check the board → ask if unsure
   app-doodle/     App. Capture → store
   schema/         Helper. Shared types + the capture app contract
   chess-rules/    Helper. Handwritten move text resolved against the board
