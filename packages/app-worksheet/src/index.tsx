@@ -142,12 +142,26 @@ function SummaryCard({ result }: { result: Partially<WorksheetOcr> }) {
   )
 }
 
+/**
+ * Keyed by position, not by `q.number` — the same rule the streamed view
+ * follows, for a different reason.
+ *
+ * A question number is not unique on a real worksheet. A page with two sections
+ * numbers both of them from 1, and the model transcribes what it sees, so a
+ * six-question page can legitimately arrive as 1-6 twice. Keying on it made
+ * React drop half the rows: a child would read feedback for six answers on a
+ * page where they had written twelve.
+ *
+ * Position is the honest key here. This array is a finished response that never
+ * reorders or filters, so index identity is stable for as long as the row is on
+ * screen.
+ */
 function WorksheetResult({ result }: { result: WorksheetOcr }) {
   return (
     <>
       <SummaryCard result={result} />
-      {result.questions.map((q) => (
-        <QuestionRow key={q.number} q={q} />
+      {result.questions.map((q, i) => (
+        <QuestionRow key={i} q={q} />
       ))}
     </>
   )
