@@ -8,7 +8,7 @@
  * a quality tier is.
  */
 
-import type { CaptureApp, Partially, QualityTier } from '@atrium/schema'
+import type { CaptureApp, CaptureContext, Partially, QualityTier, WaitLine } from '@atrium/schema'
 
 export interface WorksheetOcr {
   questions: {
@@ -27,18 +27,43 @@ export interface WorksheetOcr {
 type Question = WorksheetOcr['questions'][number]
 
 /*
+ * How each tier looks and, more to the point, what it is called out loud.
+ *
+ * The four ids are the rubric's and stay exactly as they are — they are in the
+ * enum, in `captures.ocr_json`, and in the Python evaluator, and renaming a
+ * stored value to improve a screen is how a dataset stops meaning one thing.
+ * What changes is that a child never sees them. "shaky" and "not-yet" are
+ * assessment vocabulary: they are written *about* students, for adults, and
+ * they read to a seven-year-old as a verdict on them rather than on one
+ * answer.
+ *
+ * So each tier carries a label that says the same thing to the person who did
+ * the work — in both languages, because a child who stalls on the English
+ * should still know how they did. The emoji is doing real work at this age:
+ * it is what a pre-reader sorts the page by.
+ *
  * Keyed by string rather than QualityTier so an unrecognized tier falls back
  * instead of crashing the Debrief — the `satisfies` keeps the four real tiers
  * exhaustive without giving up that fallback.
  */
-const QUALITY_COLORS: Record<string, { bg: string; color: string }> = {
-  mastered: { bg: '#d4f0e0', color: '#1a7a4a' },
-  shaky: { bg: '#fff3d4', color: '#8a6a00' },
-  'needs-help': { bg: '#ffe0d4', color: '#c04010' },
-  'not-yet': { bg: '#f0f0f0', color: '#666' },
-} satisfies Record<QualityTier, { bg: string; color: string }>
+interface TierLook {
+  bg: string
+  color: string
+  label: string
+  labelZh: string
+}
 
-const qc = (q: string) => QUALITY_COLORS[q] ?? QUALITY_COLORS['not-yet']!
+const QUALITY: Record<string, TierLook> = {
+  mastered: { bg: '#d4f0e0', color: '#1a7a4a', label: '⭐ You got it', labelZh: '会了' },
+  shaky: { bg: '#fff3d4', color: '#8a6a00', label: '👍 Almost', labelZh: '快会了' },
+  // Not "needs help" — help is what happens next, not what is wrong with them.
+  'needs-help': { bg: '#ffe0d4', color: '#c04010', label: '🤝 Let’s look together', labelZh: '一起看看' },
+  // "Not yet" is the whole point of the tier and survives translation intact:
+  // it says the door is open, which "not-yet" as a bare token never did.
+  'not-yet': { bg: '#eef1f5', color: '#5a6472', label: '🌱 Not yet', labelZh: '还没学会' },
+} satisfies Record<QualityTier, TierLook>
+
+const qc = (q: string) => QUALITY[q] ?? QUALITY['not-yet']!
 
 /**
  * One question, however much of it has arrived.
@@ -50,31 +75,42 @@ const qc = (q: string) => QUALITY_COLORS[q] ?? QUALITY_COLORS['not-yet']!
  * values that can no longer move.
  */
 function QuestionRow({ q }: { q: Partially<Question> }) {
+  const look = qc(q.quality ?? '')
+
   return (
     <div style={{ ...card, display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px' }}>
-      <span
-        style={{
-          ...qc(q.quality ?? ''),
-          padding: '2px 10px',
-          borderRadius: 16,
-          fontSize: 12,
-          fontWeight: 700,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {q.number ?? '·'}
-        {q.quality ? `. ${q.quality}` : ''}
-      </span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: '#bbb', minWidth: 22 }}>{q.number ?? '·'}</span>
       <div style={{ flex: 1 }}>
+        {q.quality && (
+          <span
+            style={{
+              background: look.bg,
+              color: look.color,
+              padding: '3px 12px',
+              borderRadius: 16,
+              fontSize: 13,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              display: 'inline-block',
+              marginBottom: 6,
+            }}
+          >
+            {look.label} <span style={{ fontWeight: 600, opacity: 0.75 }}>{look.labelZh}</span>
+          </span>
+        )}
         {q.transcript ? (
-          <div style={{ fontSize: 14, color: '#222' }}>Wrote: <em>{q.transcript}</em></div>
+          // "You wrote", not "Wrote". The Debrief is addressed to the child who
+          // filled the page in, and a headless label reads like a case file.
+          <div style={{ fontSize: 14, color: '#222' }}>You wrote 你写的: <em>{q.transcript}</em></div>
         ) : (
           // The row exists before its content does. Holding the space is what
           // makes the Debrief grow downwards instead of reshuffling.
           <div style={{ fontSize: 14, color: '#ccc' }}>reading…</div>
         )}
-        {q.misconception && <div style={{ fontSize: 13, color: '#888', marginTop: 3 }}>{q.misconception}</div>}
-        {q.suggestion && <div style={{ fontSize: 13, color: '#1a6bb5', marginTop: 3 }}>{q.suggestion}</div>}
+        {q.misconception && <div style={{ fontSize: 14, color: '#666', marginTop: 5 }}>{q.misconception}</div>}
+        {q.suggestion && (
+          <div style={{ fontSize: 14, color: '#1a6bb5', marginTop: 5, fontWeight: 500 }}>{q.suggestion}</div>
+        )}
       </div>
     </div>
   )
@@ -84,8 +120,20 @@ function SummaryCard({ result }: { result: Partially<WorksheetOcr> }) {
   return (
     <div style={card}>
       {result.overall_quality && (
-        <span style={{ ...qc(result.overall_quality), display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
-          {result.overall_quality}
+        <span
+          style={{
+            background: qc(result.overall_quality).bg,
+            color: qc(result.overall_quality).color,
+            display: 'inline-block',
+            padding: '5px 14px',
+            borderRadius: 20,
+            fontSize: 15,
+            fontWeight: 700,
+            marginBottom: 12,
+          }}
+        >
+          {qc(result.overall_quality).label}{' '}
+          <span style={{ fontWeight: 600, opacity: 0.75 }}>{qc(result.overall_quality).labelZh}</span>
         </span>
       )}
       <p style={{ fontSize: 16, color: '#222', margin: '0 0 8px' }}>{result.summary_en}</p>
@@ -94,12 +142,26 @@ function SummaryCard({ result }: { result: Partially<WorksheetOcr> }) {
   )
 }
 
+/**
+ * Keyed by position, not by `q.number` — the same rule the streamed view
+ * follows, for a different reason.
+ *
+ * A question number is not unique on a real worksheet. A page with two sections
+ * numbers both of them from 1, and the model transcribes what it sees, so a
+ * six-question page can legitimately arrive as 1-6 twice. Keying on it made
+ * React drop half the rows: a child would read feedback for six answers on a
+ * page where they had written twelve.
+ *
+ * Position is the honest key here. This array is a finished response that never
+ * reorders or filters, so index identity is stable for as long as the row is on
+ * screen.
+ */
 function WorksheetResult({ result }: { result: WorksheetOcr }) {
   return (
     <>
       <SummaryCard result={result} />
-      {result.questions.map((q) => (
-        <QuestionRow key={q.number} q={q} />
+      {result.questions.map((q, i) => (
+        <QuestionRow key={i} q={q} />
       ))}
     </>
   )
@@ -129,13 +191,50 @@ function WorksheetStream({ partial }: { partial: Partially<WorksheetOcr> }) {
   )
 }
 
+/**
+ * What to say to this student while their page is being read.
+ *
+ * Everything here is true of the pipeline and says nothing about the paper —
+ * the reading has not finished, and a compliment paid before it has is a
+ * compliment that costs the real feedback its credibility. See
+ * `kiosk/src/platform/WaitChat.tsx` for why the whole pool exists.
+ *
+ * The youngest readers get their own set. A first-grader waiting on a sentence
+ * about "working down the page" is being handed a second reading task at the
+ * exact moment they were promised a rest.
+ */
+function worksheetWaitChat({ student }: CaptureContext): WaitLine[] {
+  const name = student.name.split(' ')[0] ?? student.name
+
+  if (student.grade !== null && student.grade !== undefined && student.grade <= 1) {
+    return [
+      { en: `Got it, ${name}!`, zh: `收到啦，${name}！` },
+      { en: 'I am reading your page now.', zh: '我正在读你的这一页。' },
+      { en: 'One question at a time…', zh: '一题一题地看…' },
+      { en: 'Almost ready!', zh: '快好了！' },
+      { en: 'Thank you for waiting.', zh: '谢谢你等我。' },
+    ]
+  }
+
+  return [
+    { en: `Got your page, ${name}. Let me read it.`, zh: `拿到你的作业了，${name}，我来读一读。` },
+    { en: 'Starting at the top…', zh: '从第一题开始…' },
+    { en: 'I read every line rather than skimming — that is the slow part.', zh: '我每一行都读，不是扫一眼，所以会慢一点。' },
+    { en: 'Working my way down the page.', zh: '正在一行行往下看。' },
+    { en: 'Handwriting takes me a moment. Nearly there.', zh: '手写的字要多看一会儿，快好了。' },
+    { en: 'Putting your Debrief together now.', zh: '正在整理你的反馈。' },
+    { en: 'Still going — thanks for waiting.', zh: '还在看，谢谢你等我。' },
+  ]
+}
+
 export const worksheetApp: CaptureApp<WorksheetOcr> = {
   id: 'worksheet',
   label: 'Worksheet',
   labelZh: '作业',
   icon: '📝',
-  blurb: 'Graded against a rubric',
   paper: 'letter',
+  theme: { tint: '#fff3d1', accent: '#d98a00' },
+  waitChat: worksheetWaitChat,
   // Only ever seen before the first question lands, so it describes what is
   // about to happen rather than how long the whole thing takes.
   waitHint: 'Your answers will appear here as they are read',

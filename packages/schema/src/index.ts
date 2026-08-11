@@ -26,6 +26,8 @@ export type {
   CaptureAppServer,
   CaptureContext,
   CaptureExtract,
+  CaptureTheme,
   Partially,
   SystemPrompt,
+  WaitLine,
 } from './app'
