@@ -19,7 +19,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import type { CaptureAppServer, CaptureResponse } from '@atrium/schema'
+import type { CaptureAppServer, CaptureResponse, Student } from '@atrium/schema'
 import { atrium } from './_lib/db'
 import { storeCapture } from './_lib/storage'
 import { runPipeline } from './_lib/pipelines'
@@ -31,8 +31,28 @@ interface CaptureBody {
   mimeType?: string
   studentId?: string
   studentName?: string
+  /** Unknown, not `number`: it arrives over the wire and most rows have none. */
+  studentGrade?: unknown
   kind?: string
   crop?: unknown
+}
+
+/**
+ * Grade as a hint, exactly as `_lib/bhcs.ts` describes it — and therefore not
+ * validated the way the fields above are.
+ *
+ * A missing or unparseable grade drops to null and the capture proceeds. It is
+ * never a 400: the student has already handed over the page, nothing in the
+ * pipeline depends on this value, and most of the roster has no grade at all,
+ * so refusing a capture over it would gate on precisely the field that must
+ * never gate.
+ *
+ * Bounded at 12 because the only consumer is a wording level for a K-5 hub;
+ * anything outside that is a client bug and a null is the honest reading of it.
+ */
+function usableGrade(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return null
+  return raw >= 0 && raw <= 12 ? Math.floor(raw) : null
 }
 
 const EXTENSIONS: Record<string, string> = {
@@ -74,7 +94,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const image = Buffer.from(imageBase64, 'base64')
   if (image.length === 0) return res.status(400).json({ error: 'Empty image' })
 
-  const args: IngestArgs = { app, image, mimeType, studentId, studentName, crop: body.crop }
+  const student: Student = { id: studentId, name: studentName, grade: usableGrade(body.studentGrade) }
+  const args: IngestArgs = { app, image, mimeType, student, crop: body.crop }
 
   // Every rejection above is a bad request with nothing stored, so it is a
   // status code. Past this point the response has begun and failures are
@@ -105,8 +126,12 @@ interface IngestArgs {
   app: CaptureAppServer
   image: Buffer
   mimeType: string
-  studentId: string
-  studentName: string
+  /**
+   * Carried whole rather than as loose id/name fields, because it is also the
+   * `CaptureContext` the app's prompt is addressed to. Splitting it would mean
+   * reassembling it one line before the pipeline call.
+   */
+  student: Student
   crop: unknown
 }
 
@@ -116,7 +141,7 @@ interface IngestArgs {
  * either way.
  */
 async function ingest(
-  { app, image, mimeType, studentId, studentName, crop }: IngestArgs,
+  { app, image, mimeType, student, crop }: IngestArgs,
   watch?: {
     onStored: (stored: Pick<CaptureResponse, 'captureId' | 'fileUrl' | 'storageBackend'>) => void
     onPartial: (partial: unknown) => void
@@ -127,7 +152,7 @@ async function ingest(
   // 1. Pixels first, wherever CAPTURE_STORAGE points.
   const file = await storeCapture({
     bytes: image,
-    filename: safeFilename(studentName, app.id, mimeType),
+    filename: safeFilename(student.name, app.id, mimeType),
     mimeType,
     folder: app.id,
   })
@@ -136,8 +161,8 @@ async function ingest(
   const { data: row, error: insertError } = await db
     .from('captures')
     .insert({
-      student_id: studentId,
-      student_name: studentName,
+      student_id: student.id,
+      student_name: student.name,
       kind: app.id,
       storage_backend: file.backend,
       storage_id: file.id,
@@ -158,8 +183,9 @@ async function ingest(
   // happens to the model call, the page is not lost.
   watch?.onStored({ captureId, fileUrl: file.url, storageBackend: file.backend })
 
-  // 3. Interpret. Which model call this is, if any, is the app's business.
-  const outcome = await runPipeline(app, image, mimeType, watch?.onPartial)
+  // 3. Interpret. Which model call this is, if any, is the app's business —
+  //    including whether knowing who the student is changes how it asks.
+  const outcome = await runPipeline(app, image, mimeType, { student }, watch?.onPartial)
 
   // 4. Record the result. If this update fails the image and row still
   //    exist, so the capture is replayable from the 'pending' index.

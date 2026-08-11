@@ -4,13 +4,19 @@ Package: `packages/kiosk`
 Tech: React 18, Vite, TypeScript, inline styles, DM Sans font  
 Port: 5173
 
-## Three modes
+## Two modes
 
 ```
-checkin ──(QR scan / name select)──▶ chat ──(submit button)──▶ scan
-   ▲                                    │                          │
-   └────────────────(check out)─────────┘◀─────────(done)─────────┘
+checkin ──(name autocomplete)──▶ capture
+   ▲                                │
+   └──────────(check out)───────────┘
 ```
+
+The chat landing page between them is gone, and so is the second scan UI it
+led to. Both were stubs, and a stub the student has to click past is worse
+than no screen at all. The sections below are the plan for what a Docent
+conversation and a Leaf balance should do when they are real — not a
+description of code that exists.
 
 ### 1. Check-in (`src/modes/CheckIn.tsx`)
 **Current state:** name-list mock  

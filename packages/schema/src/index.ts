@@ -21,4 +21,11 @@ export type {
   CaptureStreamEvent,
   QualityTier,
 } from './capture'
-export type { CaptureApp, CaptureAppServer, CaptureExtract, Partially } from './app'
+export type {
+  CaptureApp,
+  CaptureAppServer,
+  CaptureContext,
+  CaptureExtract,
+  Partially,
+  SystemPrompt,
+} from './app'

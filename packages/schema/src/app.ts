@@ -31,10 +31,39 @@ import type { GeminiSchema } from './gemini'
 import type { PaperId } from './paper'
 import type { Student } from './student'
 
+/**
+ * Who a capture is for.
+ *
+ * The platform assembles this from the check-in and hands it to the app; the
+ * app reads whatever it has a use for and ignores the rest. It exists so an
+ * extraction can be addressed to a particular child without the platform
+ * having any opinion about what that changes — pitching feedback to a reading
+ * level (BHCS-14) is the first use, and a reading-level estimate from
+ * `skill-graph` is the one after it.
+ *
+ * Nothing here may be depended on: `student.grade` is null for most of the
+ * roster and every field that follows it will be at least as sparse.
+ */
+export interface CaptureContext {
+  student: Student
+}
+
+/**
+ * A system prompt, or one written for the student in front of the camera.
+ *
+ * A function rather than a template because what varies is not a slot in a
+ * sentence — a prompt addressed to a first-grader and one addressed to a
+ * fifth-grader differ in which instructions are present at all.
+ *
+ * `userPrompt` deliberately stays a constant: it says what to do with *this
+ * image*, which is the same request whoever handed the page over.
+ */
+export type SystemPrompt = string | ((ctx: CaptureContext) => string)
+
 /** Server-side extraction: one schema-constrained multimodal call. */
 export interface CaptureExtract {
   schema: GeminiSchema
-  systemPrompt: string
+  systemPrompt: SystemPrompt
   userPrompt: string
   /**
    * Opt into streamed extraction (BHCS-10). Nothing else about the app

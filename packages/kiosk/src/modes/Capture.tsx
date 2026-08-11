@@ -16,7 +16,6 @@ import {
   defaultPageUp,
   orientationFor,
   quarterTurnsFor,
-  type PageUp,
 } from '../lib/paper'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { detectPage, type Detection, type Quad } from '../lib/page-detect'
@@ -25,7 +24,6 @@ import { APPS, type AnyCaptureApp } from '../platform/registry'
 
 interface Props {
   student: Student
-  onDone: () => void
   onCheckOut: () => void
 }
 
@@ -58,7 +56,7 @@ const PROBE_TIMEOUT_MS = 12_000
 const quadPoints = (q: Quad): string =>
   [q.tl, q.tr, q.br, q.bl].map((p) => `${p.x * 100},${p.y * 100}`).join(' ')
 
-export default function Capture({ student, onDone, onCheckOut }: Props) {
+export default function Capture({ student, onCheckOut }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -68,27 +66,17 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
   const openingRef = useRef<Promise<void> | null>(null)
 
   const [phase, setPhase] = useState<Phase>('setup')
-  const [cameras, setCameras] = useState<Camera[]>([])
-  const [camera, setCamera] = useState<Camera | null>(null)
   const [camState, setCamState] = useState<CameraState>('probing')
   /*
    * The whole app, not its id: everything downstream — the crop guide, the
-   * button label, the result view — is a field on it, so there is nothing left
-   * for the platform to look up or branch on.
+   * result view — is a field on it, so there is nothing left for the platform
+   * to look up or branch on.
+   *
+   * It is no longer chosen in its own step. The three buttons in the live view
+   * *are* the shutter, and this holds whichever one was last pressed (or
+   * pointed at) so the crop guide and the result screen agree with it.
    */
   const [app, setApp] = useState<AnyCaptureApp>(APPS[0])
-  /*
-   * Which way up the page is, held as an override on top of what the frame
-   * implies rather than as a value in its own right.
-   *
-   * It is deliberately not persisted. How a sheet is lying on the desk is a
-   * fact about the student standing there, not a setting for the station, and
-   * storing it meant one tap on ↑ — by anyone, at any point in the past —
-   * outlived that student and quietly turned every later capture's fallback
-   * crop portrait, clipping the sides of pages laid sideways. The override
-   * lasts the visit; the next check-in starts from the frame again.
-   */
-  const [pageUpOverride, setPageUpOverride] = useState<PageUp | null>(null)
   const [frameSize, setFrameSize] = useState<{ w: number; h: number } | null>(null)
   const [mode, setMode] = useState<StreamMode | null>(null)
   const [detected, setDetected] = useState<Detection | null>(null)
@@ -126,7 +114,15 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     result.ocrStatus === 'ok' &&
     Boolean(app.Resolve) &&
     (app.needsResolve?.(result.ocr) ?? true)
-  const pageUp = pageUpOverride ?? defaultPageUp(frameSize?.w, frameSize?.h)
+  /*
+   * Which way up the page is, inferred from the frame's own shape and no
+   * longer overridable — the four arrows that used to offer that were a
+   * bring-up control, and a wrong answer from a student was worse than the
+   * inference. A landscape frame means a page laid sideways, which is also
+   * how it should be laid: it fills ~84% of the frame that way against ~55%
+   * upright.
+   */
+  const pageUp = defaultPageUp(frameSize?.w, frameSize?.h)
   // The fallback rectangle, shown only when the page's own edges cannot be
   // found. When they can, the outline below traces the real page instead.
   const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
@@ -204,9 +200,11 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           setTimeout(() => reject(new Error('timeout')), PROBE_TIMEOUT_MS),
         ),
       ])
-      setCameras(found)
+      // Whichever camera `preferredCamera` picks is the one used. The station
+      // has one document camera pointed at one desk; offering a dropdown made
+      // "which lens am I?" a question for a nine-year-old, and the only wrong
+      // answer — the laptop's own webcam, aimed at their face — was one tap away.
       const chosen = preferredCamera(found)
-      setCamera(chosen)
       setCamState(found.length > 0 ? 'ready' : 'none')
       // Go live immediately. A student walks up with paper in hand; making
       // them press "start camera" before they can even see whether the page
@@ -292,12 +290,22 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
     return run
   }
 
-  async function shoot() {
+  /**
+   * Take the picture, as the app that was pressed.
+   *
+   * `target` is passed rather than read from state because pressing the button
+   * is both the choice and the shutter: `setApp` has not landed yet when this
+   * runs, and a capture sent under the previous app's id is a worksheet graded
+   * as a chess sheet.
+   */
+  async function shoot(target: AnyCaptureApp) {
     const video = videoRef.current
     const canvas = canvasRef.current
     if (!video || !canvas) return
 
-    const rect = cropRegion(paper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
+    setApp(target)
+    const targetPaper = target.paper
+    const rect = cropRegion(targetPaper, orientationFor(pageUp), video.videoWidth, video.videoHeight)
     setPartial(null)
     setShot(null)
     setPhase('focusing')
@@ -313,7 +321,7 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
         rect,
         quarterTurnsFor(pageUp),
         2400,
-        PAPER[paper].width / PAPER[paper].height,
+        PAPER[targetPaper].width / PAPER[targetPaper].height,
       )
     } catch (err) {
       setErrMsg((err as Error).message)
@@ -345,9 +353,13 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           mimeType: frame.mimeType,
           studentId: student.id,
           studentName: student.name,
-          kind: app.id,
+          // Null for most of the roster, and always null for the type-a-name
+          // path, which is the honest answer there rather than a gap: nobody
+          // checked who this is, so nothing should be assumed about them.
+          studentGrade: student.grade ?? null,
+          kind: target.id,
           crop: {
-            paper,
+            paper: targetPaper,
             orientation: orientationFor(pageUp),
             pageUp,
             rect,
@@ -541,35 +553,22 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
 
       {phase === 'live' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <p style={{ ...hint, margin: 0 }}>
-              Line the page up inside the frame — {PAPER[paper].label}
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 12, color: '#999' }}>page top</span>
-              {([['top','↑'],['right','→'],['bottom','↓'],['left','←']] as const).map(([o, glyph]) => (
-                <button
-                  key={o}
-                  onClick={() => setPageUpOverride(o)}
-                  title={`Top of the page points ${o}`}
-                  style={{
-                    ...ghostBtn,
-                    padding: '4px 9px',
-                    fontSize: 14,
-                    borderColor: pageUp === o ? '#1a1a2e' : '#d0cdc8',
-                    color: pageUp === o ? '#1a1a2e' : '#aaa',
-                  }}
-                >
-                  {glyph}
-                </button>
-              ))}
-            </div>
-            {frameSize && (
-              <span style={{ fontSize: 12, color: mode && !mode.full ? '#c04010' : '#bbb' }}>
+          {/*
+            The only thing left above the buttons is the sensor size, and it is
+            not for the student — it is the one number that says whether this
+            station is capturing at full resolution, readable over a shoulder
+            without touching anything. The instruction line and the page-top
+            arrows that used to sit here were for us during bring-up: the green
+            outline already tells a child where to put the paper, and no student
+            was ever going to answer "which way does the top of the page point?"
+          */}
+          {frameSize && (
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: 12, color: mode && !mode.full ? '#c04010' : '#ccc' }}>
                 sensor {frameSize.w}×{frameSize.h}
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           {/*
             The camera can come up in a reduced mode and say nothing about it —
@@ -589,49 +588,43 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
             </div>
           )}
 
-          {/* Choosing the kind while the page is already framed collapses two
-              screens into one — aim and decide are the same moment. */}
+          {/*
+            These are the shutter. Choosing the kind and taking the picture
+            were two taps for one decision — by the time a student can say
+            "this is my worksheet" they have already aimed the page, and a
+            second black button underneath only asked them to confirm what
+            they had just said.
+
+            Hovering pre-selects, which is what keeps the fallback crop guide
+            honest on a machine with a mouse: chess sheets are half-letter and
+            the others are letter, so the rectangle changes with the choice. On
+            a touch panel there is no hover and the first touch is the shutter —
+            fine, because the guide only governs captures where the page's own
+            edges could not be found.
+          */}
           <div style={{ display: 'flex', gap: 10 }}>
             {APPS.map((a) => (
               <button
                 key={a.id}
-                onClick={() => setApp(a)}
+                onClick={() => void shoot(a)}
+                onMouseEnter={() => setApp(a)}
+                onFocus={() => setApp(a)}
                 style={{
                   ...kindBtn,
                   flex: 1,
                   flexDirection: 'column',
                   gap: 2,
-                  padding: '10px 8px',
+                  padding: '16px 8px',
                   borderColor: app.id === a.id ? '#1a1a2e' : '#d0cdc8',
                   background: app.id === a.id ? '#f4f2ef' : '#fff',
                 }}
               >
-                <span style={{ fontSize: 20 }}>{a.icon}</span>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{a.label}</span>
+                <span style={{ fontSize: 26 }}>{a.icon}</span>
+                <span style={{ fontWeight: 600, fontSize: 15 }}>📸 {a.label}</span>
                 <span style={{ color: '#999', fontSize: 12 }}>{a.blurb}</span>
               </button>
             ))}
           </div>
-
-          <button onClick={shoot} style={bigBtn}>📸 Capture {app.label}</button>
-
-          {cameras.length > 1 && (
-            <select
-              value={camera?.deviceId ?? ''}
-              onChange={(e) => {
-                const next = cameras.find((c) => c.deviceId === e.target.value)
-                if (next) {
-                  setCamera(next)
-                  void goLive(next)
-                }
-              }}
-              style={{ ...select, fontSize: 13, padding: '8px 12px' }}
-            >
-              {cameras.map((c) => (
-                <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
-              ))}
-            </select>
-          )}
         </div>
       )}
 
@@ -711,7 +704,9 @@ export default function Capture({ student, onDone, onCheckOut }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <ResultCard app={app} result={result} student={student} />
             <button onClick={again} style={bigBtn}>Capture Another</button>
-            <button onClick={onDone} style={ghostBtn}>Done</button>
+            {/* There is nowhere else to go now that capture is the session —
+                finishing means the station is free for the next student. */}
+            <button onClick={onCheckOut} style={ghostBtn}>Done — check out</button>
           </div>
         </div>
       )}
@@ -809,8 +804,6 @@ const errorCard: React.CSSProperties = { padding: 20, background: '#fff0ee', bor
 const bigBtn: React.CSSProperties = { padding: '14px 28px', fontSize: 16, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }
 const ghostBtn: React.CSSProperties = { padding: '8px 16px', background: 'none', border: '1px solid #d0cdc8', color: '#666', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const kindBtn: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', borderRadius: 12, border: '2px solid #d0cdc8', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: 16 }
-const select: React.CSSProperties = { width: '100%', padding: '12px 14px', fontSize: 15, fontFamily: 'DM Sans, sans-serif', borderRadius: 10, border: '1px solid #d0cdc8', background: '#fff' }
-const sectionLabel: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }
 const hint: React.CSSProperties = { fontSize: 13, color: '#999', margin: '8px 0 0' }
 const spinner: React.CSSProperties = { width: 34, height: 34, border: '3px solid #e0e0e0', borderTopColor: '#1a1a2e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }
 const driveLink: React.CSSProperties = { display: 'block', textAlign: 'center', padding: '10px', fontSize: 14, color: '#1a6bb5', textDecoration: 'none', border: '1px solid #cfe0f5', borderRadius: 10, background: '#f5f9ff' }

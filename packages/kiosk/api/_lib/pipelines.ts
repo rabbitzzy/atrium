@@ -7,7 +7,7 @@
  * with which prompt, is the app's business and lives in its own package.
  */
 
-import type { CaptureAppServer } from '@atrium/schema'
+import type { CaptureAppServer, CaptureContext, SystemPrompt } from '@atrium/schema'
 import { visionJson, visionJsonStream } from './gemini'
 
 export interface PipelineOutcome {
@@ -41,10 +41,23 @@ const NOTHING: PipelineOutcome = {
   refinedError: null,
 }
 
+/**
+ * A prompt an app wrote once, or one it writes per student (BHCS-14).
+ *
+ * The platform resolves it and looks no further: which student facts an app
+ * consults, and what it does with them, is the app's business — exactly as
+ * the prompt's wording already was.
+ */
+function systemPrompt(prompt: SystemPrompt, ctx: CaptureContext): string {
+  return typeof prompt === 'function' ? prompt(ctx) : prompt
+}
+
 export async function runPipeline(
   app: CaptureAppServer,
   image: Buffer,
   mimeType: string,
+  /** Who the capture is for. Every app is free to ignore it, and two do. */
+  ctx: CaptureContext,
   /**
    * Where to send the extraction as it is written, for an app that asked for
    * streaming (BHCS-10). Absent means nobody is watching — a replay from a
@@ -60,7 +73,7 @@ export async function runPipeline(
   const call = {
     image,
     mimeType,
-    systemPrompt: app.extract.systemPrompt,
+    systemPrompt: systemPrompt(app.extract.systemPrompt, ctx),
     userPrompt: app.extract.userPrompt,
     schema: app.extract.schema,
   }

@@ -2,11 +2,17 @@ import { useEffect, useState } from 'react'
 import type { Student } from '@atrium/schema'
 import Admin from './modes/Admin'
 import CheckIn from './modes/CheckIn'
-import Chat from './modes/Chat'
 import Capture from './modes/Capture'
-import ScanSubmit from './modes/ScanSubmit'
 
-export type KioskMode = 'checkin' | 'chat' | 'capture' | 'scan'
+/**
+ * Two screens: name, then camera.
+ *
+ * There was a chat landing page between them, but it was a stub — a canned
+ * greeting, a Send button wired to nothing, and a print link to an endpoint
+ * that does not exist. A screen that only offers a way past itself is a tap,
+ * not a step, so checking in now lands on the thing the station is for.
+ */
+export type KioskMode = 'checkin' | 'capture'
 
 /**
  * Hash-based, so the data viewer needs no router dependency and no SPA
@@ -31,7 +37,7 @@ export default function App() {
 
   function handleCheckIn(s: Student) {
     setStudent(s)
-    setMode('chat')
+    setMode('capture')
   }
 
   function handleCheckOut() {
@@ -42,20 +48,8 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {mode === 'checkin' && <CheckIn onCheckIn={handleCheckIn} />}
-      {mode === 'chat' && student && (
-        <Chat
-          student={student}
-          onScan={() => setMode('capture')}
-          onCheckOut={handleCheckOut}
-        />
-      )}
       {mode === 'capture' && student && (
-        <Capture student={student} onDone={() => setMode('chat')} onCheckOut={handleCheckOut} />
-      )}
-      {/* Legacy single-purpose worksheet flow, kept while the Python evaluator
-          is still the path of record for the Leaf-earning submission loop. */}
-      {mode === 'scan' && student && (
-        <ScanSubmit student={student} onDone={() => setMode('chat')} onCheckOut={handleCheckOut} />
+        <Capture student={student} onCheckOut={handleCheckOut} />
       )}
     </div>
   )

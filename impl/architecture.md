@@ -108,6 +108,29 @@ Optionality carries all the variation. No `extract` **is** the store-only path.
 `extract.stream` + `StreamView` **are** BHCS-10. `refine` **is** where
 BHCS-12's validator runs. `Resolve` **is** BHCS-11's board.
 
+### `CaptureContext` — who the capture is for (BHCS-14)
+
+`extract.systemPrompt` is `string | ((ctx: CaptureContext) => string)`, and
+`CaptureContext` currently holds the checked-in `Student` and nothing else. The
+platform assembles it, hands it over, and looks no further — which app consults
+which student fact, and what it changes about the asking, is the app's business
+in exactly the way the prompt's wording already was.
+
+It is a function rather than a template because the variation is not a slot in a
+sentence: BHCS-14's brief for a first-grader and its brief for a fifth-grader
+differ in which instructions are present at all. `userPrompt` stays a constant —
+it says what to do with *this image*, which is the same request whoever handed
+the page over.
+
+Two apps ignore the context entirely and keep their prompts as plain strings,
+which is the conformance test for the field being optional in practice as well
+as in the type.
+
+This is where a reading-level estimate from `skill-graph` lands when there is
+BKT history to compute one from. Nothing in the context may ever be depended on:
+`student.grade` is null for most of the roster, and every field added after it
+will be at least as sparse.
+
 The platform holds two registries and nothing else:
 
 ```ts
@@ -177,13 +200,17 @@ prompts in two languages. `App.tsx` documents the split honestly:
 > *Legacy single-purpose worksheet flow, kept while the Python evaluator is
 > still the path of record for the Leaf-earning submission loop.*
 
-So `ScanSubmit.tsx` (194 lines) and `Capture.tsx` are also two scan UIs. The
+So `ScanSubmit.tsx` (194 lines) and `Capture.tsx` were also two scan UIs. The
 Leaf economy is wired to the Python path; the capture platform is wired to the
 TypeScript path. Recommendation: **the TypeScript pipeline wins** — it is the
 one with storage, the `captures` table, crop metadata, and the admin viewer
 behind it, and folding Leaf-awarding into it is a smaller job than rebuilding
-that in Python. Then `app-worksheet` owns the prompt, `evaluator` is deleted,
-and `ScanSubmit.tsx` goes with it.
+that in Python. Then `app-worksheet` owns the prompt and `evaluator` is deleted.
+
+**Update:** the UI half of that is already settled. `ScanSubmit.tsx` reached
+no route — nothing had set `mode: 'scan'` since `Capture` landed — so it was
+deleted along with the stub `Chat.tsx` when check-in was pointed straight at
+capture. The Python evaluator survives it, and is still the thing to fold in.
 
 **2. Where chess validation runs — the layering answers BHCS-12's open question.**
 
@@ -245,8 +272,8 @@ Each step compiles and ships on its own. No big-bang refactor.
    on 101 of 101 half-moves across both chess-karma fixtures, statuses
    included — which needed difflib's exact ratio *and* python-chess's
    move-generation order, because both decide what a garbled cell resolves to.
-6. **Consolidate the evaluators**, delete `packages/evaluator` and
-   `ScanSubmit.tsx`.
+6. **Consolidate the evaluators**, delete `packages/evaluator`. (`ScanSubmit.tsx`
+   is already gone — see the update under decision 1.)
 7. ~~BHCS-11 and BHCS-10~~ Done, each inside one app directory. BHCS-11 was the
    proof the split paid off: the board, the prompt selection and the
    re-anchoring loop are entirely inside `app-chess` and `chess-rules`. The

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test api/_lib/*.test.ts src/lib/*.test.ts",
     "lint": "eslint src api",
-    "backfill:refine": "tsx --env-file=../../.env scripts/backfill-refine.ts"
+    "backfill:refine": "tsx --env-file=../../.env scripts/backfill-refine.ts",
+    "level-lab": "tsx --env-file=../../.env scripts/level-lab.ts"
   },
   "dependencies": {
     "@atrium/app-chess": "workspace:*",
