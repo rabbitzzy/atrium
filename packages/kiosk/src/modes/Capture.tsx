@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CaptureResponse, Student } from '@atrium/schema'
 import {
   captureFrame,
@@ -21,6 +21,8 @@ import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { detectPage, type Detection, type Quad } from '../lib/page-detect'
 import { isEventStream, readCaptureStream } from '../lib/capture-stream'
 import { APPS, type AnyCaptureApp } from '../platform/registry'
+import WaitChat from '../platform/WaitChat'
+import MyWork from './MyWork'
 
 interface Props {
   student: Student
@@ -101,6 +103,17 @@ export default function Capture({ student, onCheckOut }: Props) {
   /** Capture id whose resolution step is finished, so it is not offered twice. */
   const [resolvedFor, setResolvedFor] = useState<string | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
+  /*
+   * Whether the student is looking through their own folder instead of at the
+   * camera.
+   *
+   * Held here, inside Capture, rather than as a mode of its own in App: a mode
+   * switch would unmount this screen, and unmounting it stops the stream —
+   * which means the next capture after every visit to My Work is taken during
+   * a cold autofocus sweep. The video element stays mounted and merely hidden,
+   * so coming back is instant and sharp.
+   */
+  const [browsing, setBrowsing] = useState(false)
 
   const paper = app.paper
   /*
@@ -114,6 +127,13 @@ export default function Capture({ student, onCheckOut }: Props) {
     result.ocrStatus === 'ok' &&
     Boolean(app.Resolve) &&
     (app.needsResolve?.(result.ocr) ?? true)
+  /*
+   * What this app has to say to this student during the wait, held steady per
+   * app rather than rebuilt per render — `waitChat` returns a fresh array
+   * every call, and a new array identity on every render would reshuffle the
+   * conversation under a child part-way through reading it.
+   */
+  const waitLines = useMemo(() => app.waitChat?.({ student }) ?? [], [app, student])
   /*
    * Which way up the page is, inferred from the frame's own shape and no
    * longer overridable — the four arrows that used to offer that were a
@@ -440,7 +460,7 @@ export default function Capture({ student, onCheckOut }: Props) {
   const split = phase === 'uploading' || (phase === 'done' && result !== null)
 
   return (
-    <div style={{ ...page, maxWidth: split ? 1080 : 760 }}>
+    <div style={{ ...page, maxWidth: split || browsing ? 1080 : 760 }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         /*
@@ -453,6 +473,14 @@ export default function Capture({ student, onCheckOut }: Props) {
         @media (min-width: 880px) {
           .capture-split { grid-template-columns: 320px minmax(0, 1fr); }
         }
+        /*
+          The buttons answer back. A control a child taps and cannot tell they
+          tapped gets tapped again, which at this station means a second
+          capture of a page that was already sent.
+        */
+        .kind-btn { transition: transform 120ms ease, box-shadow 120ms ease; box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
+        .kind-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0,0,0,0.10); }
+        .kind-btn:active { transform: translateY(1px); box-shadow: none; }
       `}</style>
 
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -463,8 +491,23 @@ export default function Capture({ student, onCheckOut }: Props) {
             {student.nameZh ? ` · ${student.nameZh}` : ''}
           </div>
         </div>
-        <button onClick={onCheckOut} style={ghostBtn}>Check out</button>
+        {/*
+          Two ways out of the camera, in the order they are wanted: their own
+          work, then the end of the visit. Present on every phase of every
+          capture, because "where is my dragon drawing?" is not a question that
+          waits for a convenient screen — and a folder reachable only from the
+          result page would be invisible to the child who has not captured
+          anything yet.
+        */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {!browsing && (
+            <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
+          )}
+          <button onClick={onCheckOut} style={ghostBtn}>Check out</button>
+        </div>
       </header>
+
+      {browsing && <MyWork student={student} onBack={() => setBrowsing(false)} />}
 
       {/*
         Video element must stay mounted so the ref survives phase changes.
@@ -473,7 +516,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         is worse than none. Letting the element take the video's own aspect
         keeps overlay percentages exact.
       */}
-      <div style={{ position: 'relative', display: phase === 'live' || phase === 'focusing' ? 'block' : 'none' }}>
+      <div style={{ position: 'relative', display: !browsing && (phase === 'live' || phase === 'focusing') ? 'block' : 'none' }}>
         <video
           ref={videoRef}
           autoPlay
@@ -534,7 +577,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         found the stream starts on its own and this collapses into the live
         view, so the student never presses a button just to see the lens.
       */}
-      {phase === 'setup' && (
+      {!browsing && phase === 'setup' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {camState === 'probing' && <p style={{ ...hint, margin: 0 }}>Looking for cameras…</p>}
 
@@ -551,7 +594,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         </div>
       )}
 
-      {phase === 'live' && (
+      {!browsing && phase === 'live' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/*
             The only thing left above the buttons is the sensor size, and it is
@@ -602,29 +645,39 @@ export default function Capture({ student, onCheckOut }: Props) {
             fine, because the guide only governs captures where the page's own
             edges could not be found.
           */}
-          <div style={{ display: 'flex', gap: 10 }}>
-            {APPS.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => void shoot(a)}
-                onMouseEnter={() => setApp(a)}
-                onFocus={() => setApp(a)}
-                style={{
-                  ...kindBtn,
-                  flex: 1,
-                  flexDirection: 'column',
-                  gap: 2,
-                  padding: '16px 8px',
-                  borderColor: app.id === a.id ? '#1a1a2e' : '#d0cdc8',
-                  background: app.id === a.id ? '#f4f2ef' : '#fff',
-                }}
-              >
-                <span style={{ fontSize: 26 }}>{a.icon}</span>
-                <span style={{ fontWeight: 600, fontSize: 15 }}>📸 {a.label}</span>
-                <span style={{ color: '#999', fontSize: 12 }}>{a.blurb}</span>
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 12 }}>
+            {APPS.map((a) => {
+              const theme = a.theme ?? NEUTRAL_THEME
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => void shoot(a)}
+                  onMouseEnter={() => setApp(a)}
+                  onFocus={() => setApp(a)}
+                  className="kind-btn"
+                  style={{
+                    ...kindBtn,
+                    background: theme.tint,
+                    borderColor: theme.accent,
+                  }}
+                >
+                  {/* Big enough to be the button rather than decoration on it:
+                      the emoji is the only part a child who cannot yet read
+                      "Worksheet" can aim at, so it gets the space. */}
+                  <span style={{ fontSize: 44, lineHeight: 1 }}>{a.icon}</span>
+                  <span style={{ fontWeight: 700, fontSize: 18, color: '#1a1a2e' }}>{a.label}</span>
+                  <span style={{ fontSize: 15, color: theme.accent, fontWeight: 600 }}>{a.labelZh}</span>
+                </button>
+              )
+            })}
           </div>
+
+          {/*
+            `blurb` is gone from the button on purpose. "Graded against a
+            rubric" is a sentence for the adult choosing to deploy this, not
+            for the seven-year-old holding the paper, and it was the longest
+            text on the most important control.
+          */}
         </div>
       )}
 
@@ -633,7 +686,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         through, so the wait has to be visible — otherwise a student reads the
         frozen-looking screen as "it broke" and lifts the page mid-burst.
       */}
-      {phase === 'focusing' && (
+      {!browsing && phase === 'focusing' && (
         <div style={{ textAlign: 'center', padding: 24, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
           <div style={spinner} />
           <p style={{ fontSize: 16, color: '#555', margin: 0 }}>Focusing — hold still 对准中…</p>
@@ -649,7 +702,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         Nothing here knows what is in `partial` — the app renders it, exactly
         as it renders the finished result.
       */}
-      {phase === 'uploading' && (
+      {!browsing && phase === 'uploading' && (
         <div className="capture-split">
           <CapturedShot src={shot} />
           {partial && app.StreamView ? (
@@ -659,6 +712,17 @@ export default function Capture({ student, onCheckOut }: Props) {
                 <div style={{ ...spinner, width: 18, height: 18, borderWidth: 2 }} />
                 <span style={{ fontSize: 13, color: '#aaa' }}>Still reading… 还在看…</span>
               </div>
+            </div>
+          ) : waitLines.length > 0 ? (
+            /*
+              The app is talking to the student while its reading arrives. It
+              replaces the caption entirely rather than sitting under it: two
+              things describing the same wait is one of them being ignored, and
+              "Saving and reading…" was always the one that stopped being read
+              first, because it never changed.
+            */
+            <div style={{ padding: '24px 8px' }}>
+              <WaitChat lines={waitLines} />
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: 48, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
@@ -670,7 +734,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         </div>
       )}
 
-      {phase === 'error' && (
+      {!browsing && phase === 'error' && (
         <div style={errorCard}>
           <strong style={{ color: '#c04010' }}>Something went wrong</strong>
           <p style={{ margin: 0, fontSize: 14, color: '#c04010' }}>{errMsg}</p>
@@ -684,7 +748,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         this app has a step, that this result needs it, and that resolving
         produces a new result to show and to store.
       */}
-      {phase === 'done' && result && needsResolve && app.Resolve && (
+      {!browsing && phase === 'done' && result && needsResolve && app.Resolve && (
         <div className="capture-split">
           {/* The page belongs on this screen more than on any other: the
               question being asked is about the student's own handwriting, and
@@ -695,18 +759,31 @@ export default function Capture({ student, onCheckOut }: Props) {
         </div>
       )}
 
-      {phase === 'done' && result && !needsResolve && (
+      {!browsing && phase === 'done' && result && !needsResolve && (
         <div className="capture-split">
           {/* Everything about the image, next to the image: the focus warning
               is a statement about this picture, and it is far easier to agree
               with while looking at it. */}
-          <CapturedShot src={shot} softFocus={softFocus} result={result} />
+          <CapturedShot src={shot} softFocus={softFocus} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/*
+              Above the Debrief, not below it. A worksheet with ten questions
+              on it produces a result taller than the screen, and the way out
+              was at the bottom of it — so the student who most needed to go
+              again (the one with the longest page) was the one who had to
+              scroll furthest to find out they could. It costs the result the
+              top 60px and saves every student the search.
+            */}
+            {/*
+              One button, not two. Checking out already lives in the header of
+              every screen here, and a second copy of it beside the big one
+              gave a child two ways to end their visit and one to keep going —
+              on the screen where keeping going is the whole point.
+            */}
+            <button onClick={again} style={bigBtn}>
+              📸 Show me another! 再来一张
+            </button>
             <ResultCard app={app} result={result} student={student} />
-            <button onClick={again} style={bigBtn}>Capture Another</button>
-            {/* There is nowhere else to go now that capture is the session —
-                finishing means the station is free for the next student. */}
-            <button onClick={onCheckOut} style={ghostBtn}>Done — check out</button>
           </div>
         </div>
       )}
@@ -726,11 +803,9 @@ export default function Capture({ student, onCheckOut }: Props) {
 function CapturedShot({
   src,
   softFocus = null,
-  result,
 }: {
   src: string | null
   softFocus?: number | null
-  result?: CaptureResponse
 }) {
   if (!src) return <div />
 
@@ -749,11 +824,6 @@ function CapturedShot({
             settle for a moment, then capture again.
           </p>
         </div>
-      )}
-      {result && (
-        <a href={result.fileUrl} target="_blank" rel="noreferrer" style={driveLink}>
-          🗂️ Open original{result.storageBackend === 'drive' ? ' in Google Drive' : ''}
-        </a>
       )}
     </div>
   )
@@ -802,8 +872,11 @@ const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'co
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
 const errorCard: React.CSSProperties = { padding: 20, background: '#fff0ee', borderRadius: 12, border: '1px solid #ffc8c0', display: 'flex', flexDirection: 'column', gap: 12 }
 const bigBtn: React.CSSProperties = { padding: '14px 28px', fontSize: 16, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }
+const workBtn: React.CSSProperties = { padding: '8px 16px', background: '#f0ede8', border: '1px solid #d0cdc8', color: '#1a1a2e', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const ghostBtn: React.CSSProperties = { padding: '8px 16px', background: 'none', border: '1px solid #d0cdc8', color: '#666', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
-const kindBtn: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '12px 16px', borderRadius: 12, border: '2px solid #d0cdc8', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: 16 }
+const kindBtn: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '20px 8px', borderRadius: 22, border: '3px solid', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }
+
+/** For an app that declares no theme of its own. */
+const NEUTRAL_THEME = { tint: '#f4f2ef', accent: '#1a1a2e' }
 const hint: React.CSSProperties = { fontSize: 13, color: '#999', margin: '8px 0 0' }
 const spinner: React.CSSProperties = { width: 34, height: 34, border: '3px solid #e0e0e0', borderTopColor: '#1a1a2e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }
-const driveLink: React.CSSProperties = { display: 'block', textAlign: 'center', padding: '10px', fontSize: 14, color: '#1a6bb5', textDecoration: 'none', border: '1px solid #cfe0f5', borderRadius: 10, background: '#f5f9ff' }

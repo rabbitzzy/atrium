@@ -12,7 +12,7 @@
  */
 
 import { Suspense, lazy } from 'react'
-import type { CaptureApp } from '@atrium/schema'
+import type { CaptureApp, CaptureContext, WaitLine } from '@atrium/schema'
 // From the `/status` entry point, not the package root: the root pulls in
 // chess.js, and this module is loaded by every student at the kiosk whether or
 // not they came with a scoresheet.
@@ -130,14 +130,38 @@ function ChessResult({ result }: { result: ValidatedScoresheet }) {
   )
 }
 
+/**
+ * Waiting-room talk for a scoresheet.
+ *
+ * Two of these are doing more than filling silence. Saying that the moves are
+ * being replayed on a board is what makes the result comprehensible when it
+ * arrives — a student who was told that is not surprised that the machine has
+ * an opinion about their move. And the line about being asked is a warning:
+ * `needsResolve` may well interrupt in a few seconds, and an interruption
+ * someone was told about lands as a question rather than as a failure.
+ */
+function chessWaitChat({ student }: CaptureContext): WaitLine[] {
+  const name = student.name.split(' ')[0] ?? student.name
+
+  return [
+    { en: `A game, ${name}! Let me find the first move.`, zh: `一局棋，${name}！我先找第一步。` },
+    { en: 'Setting the pieces up on my own board…', zh: '我先把棋子摆好…' },
+    { en: 'Following White, then Black, then White again.', zh: '白方，黑方，再白方，一步步跟。' },
+    { en: 'Chess handwriting is the tricky kind. Going slowly.', zh: '棋谱的字最难认，我慢慢来。' },
+    { en: 'Replaying your game to check each move fits the position.', zh: '我在把这局棋走一遍，看每一步对不对得上。' },
+    { en: 'If a move is hard to read, I will ask you about it in a second.', zh: '要是有一步看不清，等一下我问你。' },
+  ]
+}
+
 export const chessApp: CaptureApp<ValidatedScoresheet> = {
   id: 'chess',
   label: 'Chess notes',
   labelZh: '棋谱',
   icon: '♟️',
-  blurb: 'Moves checked against the board',
   paper: 'halfLetter',
+  theme: { tint: '#e5ecff', accent: '#3f5fd6' },
   waitHint: 'Usually 5–20 seconds',
+  waitChat: chessWaitChat,
   ResultView: ChessResult,
 
   /**

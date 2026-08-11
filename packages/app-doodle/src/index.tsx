@@ -6,7 +6,7 @@
  * awkward to express, the contract has grown something it should not have.
  */
 
-import type { CaptureApp } from '@atrium/schema'
+import type { CaptureApp, CaptureContext, WaitLine } from '@atrium/schema'
 
 function DoodleResult() {
   return (
@@ -20,14 +20,32 @@ function DoodleResult() {
   )
 }
 
+/**
+ * The shortest wait in the building — there is no extraction, only an upload —
+ * so these lines mostly exist to say the thing the result card says too: this
+ * one is not being marked. A child who thinks a drawing is about to be graded
+ * draws differently, and the wait is where that worry would sit.
+ */
+function doodleWaitChat({ student }: CaptureContext): WaitLine[] {
+  const name = student.name.split(' ')[0] ?? student.name
+
+  return [
+    { en: 'Ooh, art! Let me put this somewhere safe.', zh: '哇，画画！我给你收好。' },
+    { en: `No marking here, ${name} — this one is just yours.`, zh: `这个不打分，${name}，画是你自己的。` },
+    { en: 'Saving it to your folder…', zh: '正在放进你的文件夹…' },
+    { en: 'Almost done — this one is quick.', zh: '马上好，这个很快。' },
+  ]
+}
+
 export const doodleApp: CaptureApp<unknown> = {
   id: 'doodle',
   label: 'Doodle',
   labelZh: '涂鸦',
   icon: '🎨',
-  blurb: 'Saved, not graded',
   paper: 'letter',
+  theme: { tint: '#ffe4ec', accent: '#dd4f7d' },
   waitHint: 'Just saving this one',
+  waitChat: doodleWaitChat,
   ResultView: DoodleResult,
 }
 

@@ -119,6 +119,34 @@ export interface CaptureAppServer<Raw = unknown, Result = Raw> {
 }
 
 /**
+ * How an app colours itself in the picker.
+ *
+ * Colour is presentation, and presentation of an app is the app's own business
+ * — the platform draws whatever it is handed and has no table of kinds to
+ * colour. Two values rather than one because the pair has to work together at
+ * a distance: `tint` is what a six-year-old aims at, `accent` is the edge and
+ * the emphasis that keep it legible against the station's warm white.
+ */
+export interface CaptureTheme {
+  tint: string
+  accent: string
+}
+
+/**
+ * One thing said to the student while they wait, in both languages.
+ *
+ * Fixed text, not a generated reply: it is chosen and shown entirely at the
+ * kiosk, before any reading has happened, so it can say what is *going on* but
+ * must never say anything about what is on the page. "I'm looking at your
+ * first answer" is true of the pipeline; "nice handwriting" would be a
+ * sentence the machine is in no position to have written.
+ */
+export interface WaitLine {
+  en: string
+  zh: string
+}
+
+/**
  * The half that runs at the kiosk: how the app presents itself in the picker,
  * and how its result is rendered.
  */
@@ -129,13 +157,30 @@ export interface CaptureApp<Result = unknown> {
   label: string
   labelZh: string
   icon: string
-  blurb: string
 
   /** Which paper this kind arrives on. Drives the crop guide. */
   paper: PaperId
 
+  /** How this app colours its button. Falls back to the platform's neutral. */
+  theme?: CaptureTheme
+
   /** The second line under the spinner while the capture is in flight. */
   waitHint: string
+
+  /**
+   * What the app has to say to this particular student while they wait.
+   *
+   * The platform shows these one after another, as a conversation rather than
+   * a status line — twenty seconds of "Saving and reading…" is twenty seconds
+   * a child spends deciding the machine has stopped. It is the app's function
+   * and not the platform's because what is worth saying about a half-read
+   * scoresheet has nothing in common with what is worth saying about a
+   * drawing, and the platform is not allowed to know which it is holding.
+   *
+   * Returns a pool, not a script: the platform picks from it, so two captures
+   * in a row do not produce the same wait. Absent means the plain spinner.
+   */
+  waitChat?: (ctx: CaptureContext) => WaitLine[]
 
   /** Replaces the branch in the platform's old ResultCard. */
   ResultView: FC<{ result: Result; student: Student }>
