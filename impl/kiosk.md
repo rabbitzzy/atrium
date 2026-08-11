@@ -9,8 +9,27 @@ Port: 5173
 ```
 checkin ──(name autocomplete)──▶ capture
    ▲                                │
-   └──────────(check out)───────────┘
+   └────(switch student / idle)─────┘
 ```
+
+There is no "check out" any more (BHCS-18). Children never used it, and a
+station left on the previous child's name files the next child's work under
+them. The return path is now three things that all mean the same event — the
+person on screen is not the person at the station:
+
+- **The name is the button.** A chip in the header of every screen shows whose
+  session this is and reads `Not <Name>? 换人`. One tap goes back to check-in.
+- **A line above the shutter.** *Saving as <Name> — not you? 换人*, sitting
+  between the page and the three capture buttons, because pressing one of those
+  is the moment a capture acquires a `student_id`.
+- **The station gives up on its own.** Four minutes untouched → a "Still here?
+  还在吗" card with the student's name, a 45-second countdown, and both answers
+  (*Yes, it's me* / *Someone else*). Unanswered, it returns to check-in.
+  Thresholds and the state machine live in `src/lib/presence.ts`; scrolling and
+  keys count as activity, so reading a long Debrief never ends a visit.
+
+Nothing is lost by returning to check-in: captures and Debriefs are permanent
+and reachable from My Work on the next check-in.
 
 The chat landing page between them is gone, and so is the second scan UI it
 led to. Both were stubs, and a stub the student has to click past is worse

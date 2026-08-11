@@ -26,11 +26,13 @@ import { APPS, type AnyCaptureApp } from '../platform/registry'
 import WaitChat from '../platform/WaitChat'
 import CameraStage from '../platform/CameraStage'
 import { SpokenDebrief } from '../platform/ReadAloud'
+import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
 
 interface Props {
   student: Student
-  onCheckOut: () => void
+  /** The person in front of the station is not this one. Back to check-in. */
+  onSwitchStudent: () => void
 }
 
 type Phase = 'setup' | 'live' | 'focusing' | 'uploading' | 'done' | 'error'
@@ -62,7 +64,7 @@ const PROBE_TIMEOUT_MS = 12_000
 const quadPoints = (q: Quad): string =>
   [q.tl, q.tr, q.br, q.bl].map((p) => `${p.x * 100},${p.y * 100}`).join(' ')
 
-export default function Capture({ student, onCheckOut }: Props) {
+export default function Capture({ student, onSwitchStudent }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -516,14 +518,8 @@ export default function Capture({ student, onCheckOut }: Props) {
         .kind-btn:active { transform: translateY(1px); box-shadow: none; }
       `}</style>
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 20 }}>Capture 拍摄</div>
-          <div style={{ fontSize: 14, color: '#888', marginTop: 2 }}>
-            {student.name}
-            {student.nameZh ? ` · ${student.nameZh}` : ''}
-          </div>
-        </div>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 20 }}>Capture 拍摄</div>
         {/*
           Two ways out of the camera, in the order they are wanted: their own
           work, then the end of the visit. Present on every phase of every
@@ -531,12 +527,18 @@ export default function Capture({ student, onCheckOut }: Props) {
           waits for a convenient screen — and a folder reachable only from the
           result page would be invisible to the child who has not captured
           anything yet.
+
+          The second of those is the name itself now (BHCS-18). It used to be a
+          grey line of text beside a grey "Check out", both of them addressed to
+          the student who is leaving — who has already left. The chip says the
+          same thing to the student who has just arrived, at a size they can
+          read, and one tap gets them their own session.
         */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!browsing && (
             <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
           )}
-          <button onClick={onCheckOut} style={ghostBtn}>Check out</button>
+          <WhoChip student={student} onSwitch={onSwitchStudent} />
         </div>
       </header>
 
@@ -708,6 +710,19 @@ export default function Capture({ student, onCheckOut }: Props) {
             fine, because the guide only governs captures where the page's own
             edges could not be found.
           */}
+          {/*
+            The one line of text allowed back above these buttons (BHCS-18).
+            Everything else here was cleared away because it was written for us
+            rather than for the student; this is written for the student, and
+            it is the only sentence on the screen whose absence has a cost
+            measurable in wrongly-attributed work. Pressing one of the buttons
+            below is the moment a capture gets a name attached to it, so this is
+            where the name belongs — quiet, small, and tappable, so the child
+            who reads it and finds someone else's name has the fix under their
+            finger already.
+          */}
+          <SavingAs student={student} onSwitch={onSwitchStudent} />
+
           <div style={{ display: 'flex', gap: 12 }}>
             {APPS.map((a) => {
               const theme = a.theme ?? NEUTRAL_THEME
