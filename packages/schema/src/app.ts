@@ -147,6 +147,26 @@ export interface WaitLine {
 }
 
 /**
+ * What an app wants said out loud, per language (BHCS-15).
+ *
+ * Lines, not one string, and not the rendered screen either. Read-aloud is a
+ * second rendering of the same result, and the two media want different things
+ * from it: the screen can carry `⭐ You got it 会了` on one pill because the eye
+ * takes all three at once, while a voice reading that aloud says a star, then
+ * an English clause, then a Chinese one, to a child who asked for exactly one
+ * of them. So the app writes the spoken version deliberately, in the order the
+ * screen presents it, and the platform never scrapes the DOM for it.
+ *
+ * Either side may be empty, which means this result has nothing worth saying
+ * in that language — the platform then offers no button for it rather than a
+ * button that produces silence.
+ */
+export interface SpokenScript {
+  en: readonly string[]
+  zh: readonly string[]
+}
+
+/**
  * The half that runs at the kiosk: how the app presents itself in the picker,
  * and how its result is rendered.
  */
@@ -184,6 +204,21 @@ export interface CaptureApp<Result = unknown> {
 
   /** Replaces the branch in the platform's old ResultCard. */
   ResultView: FC<{ result: Result; student: Student }>
+
+  /**
+   * This result as speech, for a student who cannot read it (BHCS-15).
+   *
+   * The split is the same one `waitChat` makes: *what* is said belongs to the
+   * app, because only it knows what a quality tier is or which of its fields
+   * are prose; *how* it is said — which voice, how fast, and the fact that it
+   * only ever happens when a child presses a button — belongs to the platform,
+   * because that is true of anything this station says out loud.
+   *
+   * Absent means no read-aloud offered, which is the honest answer for a
+   * result that is a transcription or a stored drawing rather than something
+   * written to be read.
+   */
+  speech?: (result: Result, ctx: CaptureContext) => SpokenScript
 
   /**
    * What the student watches while a streamed extraction arrives (BHCS-10).

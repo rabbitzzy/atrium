@@ -10,7 +10,7 @@ The closest commercial analog is **Squirrel AI's physical learning centers** in 
 
 ## Operational reality (the constraints that drive every design decision)
 
-- **No personal devices.** Students do not bring iPads or laptops. The interface is a shared station: scanner/camera in, monitor + printer out, keyboard for chat (voice deferred to Phase 3).
+- **No personal devices.** Students do not bring iPads or laptops. The interface is a shared station: scanner/camera in, monitor + printer + speaker out, keyboard for chat (voice *input* deferred to Phase 3; the station reads its own Debriefs aloud on request — see Voice below).
 - **Elementary-aged learners.** TK–5. Reading level varies. Tasks must be physically engaging (paper, printed) and the AI's feedback must be age-appropriate and non-shaming.
 - **Bilingual (Chinese + English).** Worksheets, on-screen prompts, and feedback all need first-class bilingual support — not Google-translated as an afterthought.
 - **Short sessions, high turnover.** Students rotate through. Session state must persist across visits, but each session must be productive in 20–40 minutes.
@@ -47,13 +47,13 @@ The unit that gates paper printing. Earning one Leaf requires submitting a compl
         ↓
 [3. Print Card]     → spends 1 Leaf; blocked if balance = 0; physical paper with QR scan code
         ↓
-[4. Student works]  → may chat with AI via keyboard for clarification mid-task (voice deferred to Phase 3)
+[4. Student works]  → may chat with AI via keyboard for clarification mid-task (voice input deferred to Phase 3)
         ↓
 [5. Scan submission] → camera captures completed paper
         ↓
 [6. AI evaluates]    → multimodal LLM transcribes + grades against rubric
         ↓
-[7. Generate Debrief] → shown on screen (digital-first); printed only on explicit request
+[7. Generate Debrief] → shown on screen (digital-first), read aloud on request; printed only on explicit request
         ↓
 [8. Update tree]     → BKT update; mastery probabilities shift
         ↓
@@ -76,7 +76,7 @@ The flywheel is the product. Anything that doesn't make this loop spin faster, s
 
 Four services. Keep them dumb and composable until you have real students using it.
 
-1. **Kiosk frontend** — a single-page app running on the shared monitor. Three modes: (a) student check-in (RFID, QR badge, or face ID — start with QR badge), (b) chat (keyboard; voice + TTS deferred to Phase 3), (c) scan-and-submit (camera triggers OCR pipeline). Built in React. Avoid heavy state — the kiosk is a thin client.
+1. **Kiosk frontend** — a single-page app running on the shared monitor. Three modes: (a) student check-in (RFID, QR badge, or face ID — start with QR badge), (b) chat (keyboard; voice input deferred to Phase 3), (c) scan-and-submit (camera triggers OCR pipeline). TTS is not deferred: any result screen can be read aloud on request. Built in React. Avoid heavy state — the kiosk is a thin client.
 
 2. **Skill graph + student state service** — the brain. Stores the dynamic skill tree, per-student mastery state, session history, and task templates. Exposes endpoints for: `nextTask(studentId)`, `recordAttempt(studentId, taskId, answers, ai_eval)`, `getRadar(studentId)`. Use Postgres (already on Supabase via existing BHCS portal). Keep the graph in normal relational tables — `kcs`, `kc_edges`, `student_kc_state`. Don't reach for Neo4j until you have a real graph-traversal pain point.
 
@@ -93,7 +93,8 @@ These are defaults to revisit, not commitments.
 - **LLM for evaluation & generation:** Gemini API (current). Gemini Flash / Pro for evaluation and generation — active API key in use. Claude Sonnet 4.6 / Opus 4.7 is the longer-term option once an Anthropic key is provisioned.
 - **Math handwriting OCR:** Pix2Text (open source, free Mathpix alternative, supports Chinese natively) for the cheap path. Mathpix API for the accurate path. Or just send the cropped image to a multimodal LLM and skip OCR — the research (see /docs/research/paper-interaction.md) shows ~97–99% transcription accuracy from Claude/Gemini/GPT-4o on clean handwriting.
 - **Knowledge tracing:** pyBKT for the v1 student model. Defer DKT/pyKT until you have ≥10K interaction logs.
-- **Voice:** Deferred to Phase 3. Plan: Whisper (STT) + ElevenLabs or OpenAI TTS, kid-friendly bilingual voice. Mic muted on idle for privacy (Merlyn Mind voice-privacy paper — children's voices in shared spaces is a real concern).
+- **Voice — input and output are two features, and only input is deferred.** The Phase 3 blocker was always the microphone: recording children in a shared room is a real privacy problem (Merlyn Mind voice-privacy paper), and STT + mic-muted-on-idle stays in Phase 3, still planned as Whisper.
+  **Read-aloud shipped early (BHCS-15) because none of that applies to it.** It is output only — no microphone, nothing recorded, nothing retained, no consent surface. And it is what makes the digital-first Debrief true for TK–2: a Debrief a child cannot read is one that has to be printed and handed to an adult, which is exactly the paper the Leaf economy is trying not to spend. It uses the browser's own `speechSynthesis` rather than ElevenLabs or OpenAI TTS — no key, no server route, no per-play cost, and replay is instant, which deletes the audio-cache step rather than building it. `packages/kiosk/src/lib/speech.ts` is the seam if a warmer voice is worth paying for later.
 - **Frontend:** React. Inline styles per BHCS portal convention, DM Sans font.
 - **Backend:** Whatever is fastest for you to ship — likely the same Supabase + TypeScript/Python stack you already use.
 - **Worksheet rendering:** HTML → headless Chromium → PDF, with a QR code in the header. Avoid LaTeX in v1.
@@ -130,7 +131,7 @@ These are defaults to revisit, not commitments.
 2. What's the smallest seed skill tree we can ship with? Probably ~30 KCs across 3 subjects (Chinese reading, English reading, math) is enough for a 6-week pilot.
 3. Will worksheets be one task per page or many tasks per page? Many is more efficient; one is easier to scan reliably.
 4. How long should an AI evaluation take from scan to printed feedback? Target: under 30 seconds. If it's longer, students will walk away.
-5. Where does the AI's voice persona come from? Define it. Friendly, encouraging, mildly playful, never sarcastic. Bilingual. Probably named.
+5. Where does the AI's voice persona come from? Define it. Friendly, encouraging, mildly playful, never sarcastic. Bilingual. Probably named. *Partly answered by BHCS-15* — the Docent now has a literal voice: unhurried (below-1 rate, slower again in Chinese and slower again for TK–1), pitch left at 1 so it never slides into cartoon, and never speaking unless a student pressed a button. Still unnamed.
 6. **Teacher trust and onboarding.** Traditional teachers need a trust runway — a phased path from full review of every AI evaluation (auditor) to flagged-cases-only review (collaborator) to asynchronous monitoring at scale (multiplier). The teacher-facing dashboard, override/feedback loop, and rubric authoring surface are load-bearing features, not polish. See `/docs/pedagogy/teacher-direction.md` for the full model and open questions specific to teacher onboarding.
 7. **Eco metrics and parent visibility.** What's the right way to surface paper-saved stats to parents without it feeling performative? The parent portal could show "your child earned X Leaves this semester" alongside skill progress. But if eco stats feel like a substitute for academic substance, they erode trust. Decide on the balance before Phase 3.
 

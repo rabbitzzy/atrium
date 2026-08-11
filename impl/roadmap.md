@@ -60,7 +60,7 @@ Goal: students can scan creative work; parents see a Gallery; task generator use
 ### Phase 3 — Polish + voice (weeks 5–6)
 Goal: 6-week pilot ready.
 
-- [ ] Voice chat: Whisper STT + TTS bilingual responses from the Docent
+- [ ] Voice chat **input**: Whisper STT (the TTS half shipped early as BHCS-15 — see below)
 - [ ] Mic muted on idle (privacy)
 - [ ] BHCS portal push: session reports surface in parent portal inbox
 - [ ] Printed Debrief layout (PDF template)
@@ -234,6 +234,8 @@ Design notes:
 | 3 | PDF renderer | Playwright · Puppeteer | Playwright |
 | 4 | Review queue sync vs async | Sync (teacher signs off before student sees) · Async | Async with flag |
 | 5 | Voice persona name | Docent · unnamed | Docent |
+| 6 | Read-aloud in a shared room | Headphones · low-volume near-field speaker | **Open — hardware.** Software side is settled: student-initiated only, never autoplay (BHCS-15) |
+| 7 | TTS provider | Browser `speechSynthesis` · ElevenLabs / OpenAI TTS | Browser, for v1. No key, no cache, instant replay |
 
 ## Service ports
 
