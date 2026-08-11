@@ -100,13 +100,15 @@ two entry points, and `id` is the join:
 @atrium/app-chess          → CaptureApp        { id, label, labelZh, icon,
                                                  blurb, paper, waitHint,
                                                  ResultView, StreamView?,
-                                                 Resolve?, needsResolve? }
+                                                 Resolve?, needsResolve?,
+                                                 speech? }
 @atrium/app-chess/server   → CaptureAppServer  { id, extract?, refine? }
 ```
 
 Optionality carries all the variation. No `extract` **is** the store-only path.
 `extract.stream` + `StreamView` **are** BHCS-10. `refine` **is** where
-BHCS-12's validator runs. `Resolve` **is** BHCS-11's board.
+BHCS-12's validator runs. `Resolve` **is** BHCS-11's board. `speech` **is**
+BHCS-15's read-aloud.
 
 ### `CaptureContext` — who the capture is for (BHCS-14)
 
@@ -130,6 +132,26 @@ This is where a reading-level estimate from `skill-graph` lands when there is
 BKT history to compute one from. Nothing in the context may ever be depended on:
 `student.grade` is null for most of the roster, and every field added after it
 will be at least as sparse.
+
+### `speech` — the result, out loud (BHCS-15)
+
+An app returns `SpokenScript` — lines per language — and the platform's
+`ReadAloud` decides voice, pace, and the fact that nothing is ever spoken
+unless a student pressed a button. It is the same cut as `waitChat`: *what* is
+said is the app's, because only it knows a quality tier from a transcript;
+*how* it is said is true of anything this station says out loud, so it is the
+platform's.
+
+The seam matters more than it looks. Read-aloud is a **second rendering of the
+result**, not a reading of the screen: `⭐ You got it 会了` is one pill to the
+eye and three unrelated noises to a voice, and a synthesiser handed a mixed
+`summary_en`/`summary_zh` page reads half of it in the wrong language. So the
+app writes the spoken version deliberately, and no platform code scrapes the
+DOM for text.
+
+Nothing streams. Only a finished result is spoken, which resolves BHCS-15's
+question about colliding with BHCS-10: the stream is for the eye, the audio is
+for after.
 
 The platform holds two registries and nothing else:
 

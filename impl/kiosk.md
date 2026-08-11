@@ -37,7 +37,7 @@ description of code that exists.
 - When a Card is ready: `POST /api/worksheet/generate` → trigger browser print dialog
   - If `leaf_balance < 1`, show zero-balance state instead of print button: *"You're out of Leaves. Turn in your Card to earn one!"* (Docent voice line + on-screen message)
   - If print succeeds, Docent says: *"Here comes your Card! You've got [N] Leaves left."*
-- Voice (Phase 3): capture mic → Whisper STT → append as user message → TTS Docent response
+- Voice input (Phase 3): capture mic → Whisper STT → append as user message. Output is not deferred — see read-aloud below.
 
 ### 3. Scan-submit (`src/modes/ScanSubmit.tsx`)
 **Current state:** file input → stub fetch  
@@ -75,4 +75,14 @@ App
 ## Accessibility for elementary-aged users
 - Minimum font size: 16px; action labels 18px+
 - All buttons have explicit `aria-label` when icon-only
-- Voice input toggle: Phase 3
+- Voice **input** toggle: Phase 3 (the mic is the part that is deferred, and the reason is privacy, not effort)
+- Voice **output**: shipped (BHCS-15). Any result screen with an app-supplied
+  `speech` script carries 🔊 buttons, one per language, rendered by
+  `platform/ReadAloud.tsx` over `lib/speech.ts`. Three rules hold it together
+  and are worth not relitigating casually:
+  - **Never autoplay.** Audio in a shared room is public in a way a monitor is
+    not. The press is the consent.
+  - **Only the finished result is spoken**, never a stream — TTS needs whole
+    sentences, and restarting audio mid-thought is worse than waiting.
+  - **The app writes the script**, the platform picks the voice. Read-aloud is
+    a second rendering of the result, not a reading of the DOM.

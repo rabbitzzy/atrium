@@ -25,6 +25,7 @@ import { isEventStream, readCaptureStream } from '../lib/capture-stream'
 import { APPS, type AnyCaptureApp } from '../platform/registry'
 import WaitChat from '../platform/WaitChat'
 import CameraStage from '../platform/CameraStage'
+import { SpokenDebrief } from '../platform/ReadAloud'
 import MyWork from './MyWork'
 
 interface Props {
@@ -845,6 +846,15 @@ export default function Capture({ student, onCheckOut }: Props) {
             <button onClick={again} style={bigBtn}>
               📸 Show me another! 再来一张
             </button>
+            {/*
+              At the top of the Debrief, not the bottom of it. The student this
+              is for cannot read a word of what follows, so a control placed
+              after the thing it reads is a control they never reach — and on a
+              ten-question page it is two screens down.
+            */}
+            {result.ocrStatus === 'ok' && result.ocr != null && (
+              <SpokenDebrief app={app} ocr={result.ocr} student={student} />
+            )}
             <ResultCard app={app} result={result} student={student} />
           </div>
         </div>

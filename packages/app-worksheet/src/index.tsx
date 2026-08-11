@@ -8,7 +8,9 @@
  * a quality tier is.
  */
 
-import type { CaptureApp, CaptureContext, Partially, QualityTier, WaitLine } from '@atrium/schema'
+import type { CaptureApp, CaptureContext, Partially, WaitLine } from '@atrium/schema'
+import { qc } from './tiers'
+import { worksheetSpeech } from './speech'
 
 export interface WorksheetOcr {
   questions: {
@@ -25,45 +27,6 @@ export interface WorksheetOcr {
 }
 
 type Question = WorksheetOcr['questions'][number]
-
-/*
- * How each tier looks and, more to the point, what it is called out loud.
- *
- * The four ids are the rubric's and stay exactly as they are — they are in the
- * enum, in `captures.ocr_json`, and in the Python evaluator, and renaming a
- * stored value to improve a screen is how a dataset stops meaning one thing.
- * What changes is that a child never sees them. "shaky" and "not-yet" are
- * assessment vocabulary: they are written *about* students, for adults, and
- * they read to a seven-year-old as a verdict on them rather than on one
- * answer.
- *
- * So each tier carries a label that says the same thing to the person who did
- * the work — in both languages, because a child who stalls on the English
- * should still know how they did. The emoji is doing real work at this age:
- * it is what a pre-reader sorts the page by.
- *
- * Keyed by string rather than QualityTier so an unrecognized tier falls back
- * instead of crashing the Debrief — the `satisfies` keeps the four real tiers
- * exhaustive without giving up that fallback.
- */
-interface TierLook {
-  bg: string
-  color: string
-  label: string
-  labelZh: string
-}
-
-const QUALITY: Record<string, TierLook> = {
-  mastered: { bg: '#d4f0e0', color: '#1a7a4a', label: '⭐ You got it', labelZh: '会了' },
-  shaky: { bg: '#fff3d4', color: '#8a6a00', label: '👍 Almost', labelZh: '快会了' },
-  // Not "needs help" — help is what happens next, not what is wrong with them.
-  'needs-help': { bg: '#ffe0d4', color: '#c04010', label: '🤝 Let’s look together', labelZh: '一起看看' },
-  // "Not yet" is the whole point of the tier and survives translation intact:
-  // it says the door is open, which "not-yet" as a bare token never did.
-  'not-yet': { bg: '#eef1f5', color: '#5a6472', label: '🌱 Not yet', labelZh: '还没学会' },
-} satisfies Record<QualityTier, TierLook>
-
-const qc = (q: string) => QUALITY[q] ?? QUALITY['not-yet']!
 
 /**
  * One question, however much of it has arrived.
@@ -95,7 +58,7 @@ function QuestionRow({ q }: { q: Partially<Question> }) {
               marginBottom: 6,
             }}
           >
-            {look.label} <span style={{ fontWeight: 600, opacity: 0.75 }}>{look.labelZh}</span>
+            {look.emoji} {look.label} <span style={{ fontWeight: 600, opacity: 0.75 }}>{look.labelZh}</span>
           </span>
         )}
         {q.transcript ? (
@@ -132,7 +95,7 @@ function SummaryCard({ result }: { result: Partially<WorksheetOcr> }) {
             marginBottom: 12,
           }}
         >
-          {qc(result.overall_quality).label}{' '}
+          {qc(result.overall_quality).emoji} {qc(result.overall_quality).label}{' '}
           <span style={{ fontWeight: 600, opacity: 0.75 }}>{qc(result.overall_quality).labelZh}</span>
         </span>
       )}
@@ -240,6 +203,14 @@ export const worksheetApp: CaptureApp<WorksheetOcr> = {
   waitHint: 'Your answers will appear here as they are read',
   ResultView: WorksheetResult,
   StreamView: WorksheetStream,
+  /*
+   * BHCS-15. Only the finished Debrief is ever spoken — there is no spoken
+   * counterpart to `StreamView` and there should not be. Speech needs whole
+   * sentences, and a voice that restarted every time another question landed
+   * would be harder to follow than the wait it was covering. The stream is for
+   * the eye; the audio is for after.
+   */
+  speech: worksheetSpeech,
 }
 
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }

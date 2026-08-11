@@ -28,6 +28,7 @@ export type {
   CaptureExtract,
   CaptureTheme,
   Partially,
+  SpokenScript,
   SystemPrompt,
   WaitLine,
 } from './app'

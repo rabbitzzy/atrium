@@ -31,6 +31,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { APPS, appById } from '../platform/registry'
+import { SpokenDebrief } from '../platform/ReadAloud'
 
 interface Work {
   id: string
@@ -282,7 +283,18 @@ function WorkDetailView({ work, student }: { work: Work; student: Student }) {
           )}
 
           {detail && detail.ocrStatus === 'ok' && detail.ocr != null && app && (
-            <app.ResultView result={detail.ocr} student={student} />
+            <>
+              {/*
+                Read-aloud belongs here more than anywhere (BHCS-15). A Debrief
+                heard once at the station is heard while a child is still
+                holding the pencil; this is where they come back to it a week
+                later, and where a five-year-old comes to hear it a second time.
+                Keyed by capture so opening a different one starts a new script
+                rather than continuing the old one.
+              */}
+              <SpokenDebrief key={work.id} app={app} ocr={detail.ocr} student={student} />
+              <app.ResultView result={detail.ocr} student={student} />
+            </>
           )}
 
           {detail && detail.ocrStatus === 'skipped' && (

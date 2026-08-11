@@ -8,7 +8,8 @@
 2. **Display the session UI** — React kiosk app served from Vercel
 3. **Capture completed worksheets** — scan paper → image → LLM evaluation pipeline
 4. **Print worksheets** — spend a Leaf, receive next Card
-5. **Voice I/O** — deferred; not a v1 requirement
+5. **Audio out** — read the Debrief aloud on request (BHCS-15); see *Audio output* below
+6. **Voice in** — deferred; the microphone is a Phase 3 privacy question, not a v1 requirement
 
 The scan step drove most of the hardware research because it is the most hardware-sensitive part of the flywheel.
 
@@ -58,7 +59,7 @@ IPEVO is the standard document camera brand in US K-12 classrooms. The V4K Pro (
 
 **The catch:** IPEVO is a peripheral. It requires a host computer.
 
-**V4K vs V4K Pro — buy the Pro, and do not confuse the two.** They are separate products and Amazon listings for the plain V4K look nearly identical. Both are 8MP UVC cameras, so both work identically with `getUserMedia()`. The difference that matters to us: **the plain V4K has no light source; the V4K Pro has a built-in LED aimed at the same spot as the lens.** Since ambient light variation is our #1 OCR risk (see design constraints below), the plain V4K reintroduces the exact problem the Pro solves in the box, and you would end up bolting a desk lamp to the station to compensate. The Pro also adds a noise-cancelling mic, which is dead weight in v1 but relevant if voice returns in Phase 3. The plain V4K is fine as a cheap **prototype** unit on a desk with decent room light.
+**V4K vs V4K Pro — buy the Pro, and do not confuse the two.** They are separate products and Amazon listings for the plain V4K look nearly identical. Both are 8MP UVC cameras, so both work identically with `getUserMedia()`. The difference that matters to us: **the plain V4K has no light source; the V4K Pro has a built-in LED aimed at the same spot as the lens.** Since ambient light variation is our #1 OCR risk (see design constraints below), the plain V4K reintroduces the exact problem the Pro solves in the box, and you would end up bolting a desk lamp to the station to compensate. The Pro also adds a noise-cancelling mic, which is dead weight in v1 but relevant if voice *input* returns in Phase 3. (Read-aloud needs no microphone at all — that is the whole reason it shipped first.) The plain V4K is fine as a cheap **prototype** unit on a desk with decent room light.
 
 **Verdict:** Correct choice for the scan peripheral. Pair with a host compute device (see below). Buy the **Pro**, not the base V4K, for anything that goes in a classroom.
 
@@ -122,9 +123,44 @@ IPEVO connects via USB and Chrome OS exposes it as a standard webcam. The Vercel
 | Display | 24" 1080p monitor (Dell, LG, HP — any) | ~$130 |
 | Camera / scanner | OKIOCAM S2 Pro or IPEVO V4K **Pro** (or Elmo TT-12 for durability) — must have a built-in light | ~$170–350 |
 | Mount / enclosure | Desk anchor for the camera + cable management | ~$30 |
-| **Total** | | **~$550–730 per station** |
+| Audio out | Wired on-ear headphones on a hook, or monitor speakers | ~$15–35 |
+| **Total** | | **~$565–765 per station** |
 
 Printer is existing school hardware — shared on the network, one per room.
+
+---
+
+## Audio output — unspecified until BHCS-15, and now required
+
+Read-aloud shipped before the hardware for it was decided, which is the right
+order (the software degrades to no button on a machine with no voices) but
+leaves one thing to confirm at the station: **the kiosk must be able to make a
+sound at all.** Most Chromeboxes have no speaker of their own and the audio
+comes out of the monitor over HDMI, which on a cheap panel is quiet and
+downward-firing. Check this before assuming the feature works — it is a $15
+problem if the answer is no, and an invisible one if nobody looks.
+
+### The real decision is the shared room, not the speaker
+
+Feedback must be non-shaming. Text on a monitor is private-ish: you have to be
+standing there and looking. Audio is not. *"Let's look at borrowing again"*
+played out loud tells everyone within earshot how that student did, and the
+students most likely to press the button are the youngest and least able to
+shrug it off.
+
+| Option | For | Against |
+|---|---|---|
+| **Wired on-ear headphones on a hook** | Solves it completely. Cheap, no pairing, no charging, no battery to die mid-Debrief | A shared object in an elementary school: lost, tangled, and a hygiene question. Needs a wipe-down routine and a spare pair |
+| **Near-field speaker at low volume** | No shared object, nothing to lose or clean, works for a student who refuses headphones | Imperfect isolation — quiet enough to be private is often too quiet to be heard |
+| Directional / parametric speaker | Genuinely private without headphones | Costs more than the rest of the station; not a pilot-scale purchase |
+
+**Recommendation: headphones on a hook, with monitor audio as the fallback** so
+a student who will not wear them still gets something. Wired, not Bluetooth —
+pairing is a step a six-year-old cannot do and a dead battery is a feature that
+silently stops existing.
+
+Whichever wins, the software rule is already in place and is right under either:
+speech only ever starts from a press. There is no autoplay path in the kiosk.
 
 ---
 

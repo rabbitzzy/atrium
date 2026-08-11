@@ -65,10 +65,26 @@ Printing is the exception, not the default. Every surface that could produce pap
 | Artifact | Default | Print trigger |
 |---|---|---|
 | Card (worksheet) | Printed — this is the core physical artifact | Always printed when student confirms; costs 1 Leaf |
-| Debrief | **Digital-first**: shown on screen at end of Visit | Student or teacher can request a printed copy; 0 Leaves |
+| Debrief | **Digital-first**: shown on screen at end of Visit, and read aloud on request | Student or teacher can request a printed copy; 0 Leaves |
 | Radar chart | Always digital | Never printed from kiosk (parents view via portal) |
 | Session summary (parent) | Always digital — pushed to BHCS portal inbox | Not printed from kiosk |
 | KC description / hint sheet | Always digital — shown in Chat mode | Never printed |
+
+### Digital-first quietly failed for the youngest students until BHCS-15
+
+A digital Debrief a child cannot read is not a Debrief. For TK–2 the only
+version that worked was the printed one, handed to an adult to read out — which
+is exactly the paper this table exists to avoid, spent by the students who
+submit the most Cards.
+
+Read-aloud is what makes the digital-first default true for them: 🔊 buttons on
+the Debrief, one per language, and the paper stays in the tray. That is a
+stronger reason for the feature than "voice would be nice", and it is why it was
+worth pulling out of the Phase 3 voice bundle — read-aloud needs no microphone,
+so none of the privacy work that deferred voice applies to it.
+
+Watch the Debrief print rate at the bottom of this document by grade. If it
+falls for TK–2 and holds elsewhere, that is the feature working.
 
 ### Worksheet density
 
