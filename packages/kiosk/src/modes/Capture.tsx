@@ -3,7 +3,9 @@ import type { CaptureResponse, Student } from '@atrium/schema'
 import {
   captureFrame,
   listCameras,
+  lastAspect,
   preferredCamera,
+  rememberAspect,
   rememberCamera,
   startStream,
   streamMode,
@@ -22,6 +24,7 @@ import { detectPage, type Detection, type Quad } from '../lib/page-detect'
 import { isEventStream, readCaptureStream } from '../lib/capture-stream'
 import { APPS, type AnyCaptureApp } from '../platform/registry'
 import WaitChat from '../platform/WaitChat'
+import CameraStage from '../platform/CameraStage'
 import MyWork from './MyWork'
 
 interface Props {
@@ -114,6 +117,15 @@ export default function Capture({ student, onCheckOut }: Props) {
    * so coming back is instant and sharp.
    */
   const [browsing, setBrowsing] = useState(false)
+  /**
+   * Whether the stream has painted a frame — not whether it has been opened.
+   *
+   * The gap between the two is the whole reason the placeholder exists, and it
+   * is why this is separate from `phase`: `phase` goes 'live' when the tracks
+   * are running, which is a second or more before there is anything on the
+   * glass.
+   */
+  const [videoLive, setVideoLive] = useState(false)
 
   const paper = app.paper
   /*
@@ -143,6 +155,21 @@ export default function Capture({ student, onCheckOut }: Props) {
    * upright.
    */
   const pageUp = defaultPageUp(frameSize?.w, frameSize?.h)
+  /*
+   * The camera's box is on screen from the first moment there is any prospect
+   * of a camera — including while the devices are still being enumerated. That
+   * is the point: the box has to exist before the stream does, or the page is
+   * laid out twice. It comes down only for a camera that will not be arriving,
+   * where a placeholder promising one would be a lie, and for the screens after
+   * the shutter.
+   */
+  const showStage =
+    !browsing &&
+    (phase === 'live' ||
+      phase === 'focusing' ||
+      (phase === 'setup' && (camState === 'probing' || camState === 'ready')))
+  const stageNote =
+    camState === 'probing' ? 'Waking up the camera… 相机准备中…' : 'Almost ready… 马上就好…'
   // The fallback rectangle, shown only when the page's own edges cannot be
   // found. When they can, the outline below traces the real page instead.
   const guide = frameSize ? cropRegion(paper, orientationFor(pageUp), frameSize.w, frameSize.h) : null
@@ -180,6 +207,10 @@ export default function Capture({ student, onCheckOut }: Props) {
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    // There is no picture any more, so the placeholder is the truth again —
+    // without this the box keeps showing the last painted frame of a stream
+    // that has been torn down.
+    setVideoLive(false)
   }, [])
 
   useEffect(() => () => stopCamera(), [stopCamera])
@@ -295,6 +326,7 @@ export default function Capture({ student, onCheckOut }: Props) {
         videoTrack.onended = () => {
           setCamState('none')
           setPhase('setup')
+          setVideoLive(false)
         }
         setMode(streamMode(videoTrack))
       }
@@ -516,17 +548,47 @@ export default function Capture({ student, onCheckOut }: Props) {
         is worse than none. Letting the element take the video's own aspect
         keeps overlay percentages exact.
       */}
-      <div style={{ position: 'relative', display: !browsing && (phase === 'live' || phase === 'focusing') ? 'block' : 'none' }}>
+      <div
+        style={{
+          position: 'relative',
+          display: showStage ? 'block' : 'none',
+          // The hole the camera lands in, sized before there is a camera. Set
+          // from the live stream once it exists, from what this station saw
+          // last time until then — so it does not change when the two agree,
+          // which after the first ever visit is every visit.
+          aspectRatio: String(frameSize ? frameSize.w / frameSize.h : lastAspect()),
+          borderRadius: 12,
+          overflow: 'hidden',
+          background: '#0f221c',
+        }}
+      >
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          onLoadedMetadata={(e) =>
+          onLoadedMetadata={(e) => {
             setFrameSize({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
-          }
-          style={{ display: 'block', width: '100%', borderRadius: 12, background: '#000' }}
+            rememberAspect(e.currentTarget.videoWidth, e.currentTarget.videoHeight)
+          }}
+          // Fires on the first frame actually painted, which is the moment
+          // there is something to look at — `loadedmetadata` is a size, not a
+          // picture, and crossfading on it swaps the placeholder for black.
+          onPlaying={() => setVideoLive(true)}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            opacity: videoLive ? 1 : 0,
+            transition: 'opacity 320ms ease',
+          }}
         />
+
+        {/* Over the video, under the overlays: it covers the black frame while
+            the stream warms up and dissolves once there is a picture. */}
+        {!videoLive && <CameraStage note={stageNote} />}
         {/* Page found: trace its actual corners, and dim everything outside
             them, so the lit region is literally the image that gets stored. */}
         {detected?.quad && (
@@ -579,8 +641,8 @@ export default function Capture({ student, onCheckOut }: Props) {
       */}
       {!browsing && phase === 'setup' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {camState === 'probing' && <p style={{ ...hint, margin: 0 }}>Looking for cameras…</p>}
-
+          {/* Nothing for the probing case: the stage above is already saying
+              it, in both languages, in the box the camera is about to fill. */}
           {/* 'ready' is momentarily reachable here, between the probe
               resolving and goLive() flipping the phase. */}
           {camState !== 'probing' && camState !== 'ready' && (
@@ -878,5 +940,4 @@ const kindBtn: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 
 
 /** For an app that declares no theme of its own. */
 const NEUTRAL_THEME = { tint: '#f4f2ef', accent: '#1a1a2e' }
-const hint: React.CSSProperties = { fontSize: 13, color: '#999', margin: '8px 0 0' }
 const spinner: React.CSSProperties = { width: 34, height: 34, border: '3px solid #e0e0e0', borderTopColor: '#1a1a2e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }

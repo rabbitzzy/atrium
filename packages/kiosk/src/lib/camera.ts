@@ -58,6 +58,30 @@ export function rememberCamera(camera: Camera): void {
   localStorage.setItem(REMEMBERED_KEY, camera.label)
 }
 
+const ASPECT_KEY = 'atrium.camera.aspect'
+
+/**
+ * The shape of the last frame this station saw, remembered across visits.
+ *
+ * It exists so the placeholder can be laid out at the size the camera is about
+ * to be. A video element has no dimensions until `loadedmetadata` fires, so a
+ * box sized from the stream is a box that appears late, and the screen visibly
+ * grows into it. A box sized from what this camera was last time is the right
+ * size before the camera has opened at all — and the shape of a fixed-mounted
+ * document camera does not change between one child and the next.
+ *
+ * 4:3 on a station that has never run, which is right often enough and wrong
+ * by a single small reflow when it is not.
+ */
+export function rememberAspect(width: number, height: number): void {
+  if (width > 0 && height > 0) localStorage.setItem(ASPECT_KEY, String(width / height))
+}
+
+export function lastAspect(): number {
+  const stored = Number(localStorage.getItem(ASPECT_KEY))
+  return Number.isFinite(stored) && stored > 0 ? stored : 4 / 3
+}
+
 /** What the driver actually handed us, as opposed to what we asked for. */
 export interface StreamMode {
   width: number
