@@ -8,10 +8,29 @@
 import type { CaptureAppServer, CaptureContext, GeminiSchema, RecordArgs } from '@atrium/schema'
 import { readingLevelBrief } from './reading-level'
 import { isRecordable, toObservations, type GradedQuestion } from './attempts'
+import { guard } from './guard'
 
 const WORKSHEET_SCHEMA: GeminiSchema = {
   type: 'OBJECT',
   properties: {
+    /*
+     * BHCS-22. Asked first, and answered before anything is graded.
+     *
+     * `propertyOrdering` puts it at the front so the streaming path learns the
+     * answer before a single question arrives — and so the model itself commits
+     * to whether the page is gradeable before it has written four gradings and
+     * has an answer to be consistent with.
+     */
+    is_worksheet: {
+      type: 'BOOLEAN',
+      description:
+        'True only if this page is a worksheet, exercise sheet or test with questions on it. False for a drawing, a blank page, a photograph of a desk, a book, or anything else.',
+    },
+    not_worksheet_reason: {
+      type: 'STRING',
+      nullable: true,
+      description: 'When is_worksheet is false, what the page actually appears to be.',
+    },
     questions: {
       type: 'ARRAY',
       items: {
@@ -32,8 +51,16 @@ const WORKSHEET_SCHEMA: GeminiSchema = {
     summary_zh: { type: 'STRING' },
     next_focus: { type: 'STRING' },
   },
-  required: ['questions', 'overall_quality', 'summary_en', 'summary_zh', 'next_focus'],
-  propertyOrdering: ['questions', 'overall_quality', 'summary_en', 'summary_zh', 'next_focus'],
+  required: ['is_worksheet', 'questions', 'overall_quality', 'summary_en', 'summary_zh', 'next_focus'],
+  propertyOrdering: [
+    'is_worksheet',
+    'not_worksheet_reason',
+    'questions',
+    'overall_quality',
+    'summary_en',
+    'summary_zh',
+    'next_focus',
+  ],
 }
 
 /**
@@ -41,6 +68,29 @@ const WORKSHEET_SCHEMA: GeminiSchema = {
  * page over lives in `reading-level.ts` and is appended below.
  */
 const WORKSHEET_PROMPT = `You evaluate completed worksheets from a bilingual Chinese-English learning hub.
+
+── First, decide whether this is a worksheet at all ──
+
+Before anything else, set is_worksheet. It is true only for a page with
+questions on it: a worksheet, an exercise sheet, a test.
+
+It is false for a drawing, a painting, a blank sheet, a photograph of a desk or
+a hand, a page from a storybook, or anything else a child might put under the
+camera. When it is false, say what the page appears to be in
+not_worksheet_reason, return an empty questions array, and stop. Do not invent
+questions, do not grade, and do not write encouraging summaries about what a
+lovely drawing it is.
+
+This matters more than it looks. A child who puts the wrong page down and gets
+back confident feedback about questions that were never on it has been told
+something false about their own work, and nothing in the system will catch it.
+An honest "this is a drawing" costs them one retry. A fabricated grade costs
+them the truth.
+
+A part-finished worksheet is still a worksheet. Most of the page being blank is
+what an unfinished page looks like, not what a non-worksheet looks like.
+
+── If it is a worksheet, grade it ──
 
 Transcribe each answer exactly as written, then judge it. When handwriting is
 genuinely unclear, transcribe your best reading and say so in the misconception
@@ -94,6 +144,8 @@ const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001
 
 /** What the grader returns, as far as recording an attempt is concerned. */
 interface WorksheetEvaluation {
+  is_worksheet?: boolean | null
+  not_worksheet_reason?: string | null
   questions?: GradedQuestion[]
   overall_quality?: string
   summary_en?: string
@@ -116,15 +168,20 @@ interface WorksheetEvaluation {
  * - **No Card code.** The page was not one of ours, or the QR did not read.
  *   Without a task there is no way to know which Rooms it was about, and
  *   guessing from the questions would attach work to skills nobody chose.
- * - **Nothing gradeable.** The known failure in the roadmap is this pipeline
- *   confidently grading a child's drawing as five imaginary questions. If that
- *   reaches here, recording it would move mastery on Rooms never worked.
+ * - **Not a worksheet.** BHCS-22's guard. A drawing graded as five imaginary
+ *   questions must never become an attempt: it would move mastery on Rooms the
+ *   child never worked, and nothing downstream could tell that it had.
  * - **The task names no Rooms.** A Card from before Cards targeted Rooms.
  */
 async function recordAttempt({ captureId, data, context }: RecordArgs): Promise<void> {
   if (!context.taskId) return
 
   const evaluation = data as WorksheetEvaluation
+
+  // BHCS-22. The guard runs before anything else is read: a page that is not a
+  // worksheet has no attempt to record, however confidently it was graded.
+  if (!guard(evaluation).gradeable) return
+
   const observations = toObservations(evaluation.questions ?? [])
   if (!isRecordable(observations)) return
 
