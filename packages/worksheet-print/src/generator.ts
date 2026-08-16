@@ -1,6 +1,7 @@
 import QRCode from 'qrcode'
 import puppeteer from 'puppeteer'
 import { fetchRooms } from './blueprint.js'
+import { renderFixedCard } from './template.js'
 import {
   buildProblemPrompt,
   PROBLEM_SCHEMA,
@@ -45,7 +46,13 @@ export async function generateCard(req: CardRequest): Promise<Buffer> {
   const qrDataUrl = await QRCode.toDataURL(
     JSON.stringify({ studentId: req.studentId, taskId: req.taskId }),
   )
-  const html = renderCardHtml({ problems, qrDataUrl, req, rooms, difficulty })
+  const html = renderFixedCard(problems, {
+    studentId: req.studentId,
+    taskId: req.taskId,
+    subject: rooms.map((r) => `${r.labelEn} / ${r.labelZh}`).join(' + '),
+    difficulty,
+    qrDataUrl,
+  })
 
   const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
   try {
@@ -94,72 +101,6 @@ async function generateProblems(rooms: TargetRoom[]): Promise<GeneratedProblem[]
     throw new ProblemGenerationError('Gemini returned text that is not JSON')
   }
   return validateProblems(parsed)
-}
-
-function renderCardHtml(args: {
-  problems: GeneratedProblem[]
-  qrDataUrl: string
-  req: CardRequest
-  rooms: TargetRoom[]
-  difficulty: number
-}): string {
-  const { problems, qrDataUrl, req, rooms, difficulty } = args
-  const problemsHtml = problems
-    .map(
-      (p) => `
-    <div class="problem">
-      <div class="num">${p.number}.</div>
-      <div class="body">
-        <div class="en">${escapeHtml(p.promptEn)}</div>
-        <div class="zh">${escapeHtml(p.promptZh)}</div>
-        ${'<div class="answer-line"></div>'.repeat(p.answerLines)}
-      </div>
-    </div>`,
-    )
-    .join('')
-
-  // The Rooms by name, in both languages. A teacher picking this off the
-  // printer should be able to see what it is for without decoding a path.
-  const subject = rooms.map((r) => `${escapeHtml(r.labelEn)} / ${escapeHtml(r.labelZh)}`).join(' + ')
-
-  return `<!doctype html><html><head><meta charset="UTF-8"/>
-<style>
-  body { font-family: 'DM Sans', sans-serif; max-width: 680px; margin: 32px auto; color: #1a1a2e; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; margin-bottom: 24px; }
-  .header h1 { font-size: 22px; margin: 0 0 6px; }
-  .subject { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
-  .meta { font-size: 11px; color: #666; }
-  .problem { display: flex; gap: 12px; margin-bottom: 28px; }
-  .num { font-weight: 700; font-size: 18px; min-width: 24px; }
-  .en { font-size: 16px; margin-bottom: 4px; }
-  .zh { font-size: 14px; color: #555; margin-bottom: 8px; }
-  .answer-line { border-bottom: 1px solid #bbb; height: 28px; margin-bottom: 6px; }
-  .leaf { margin-top: 28px; font-size: 11px; color: #3f7a5e; }
-</style></head><body>
-<div class="header">
-  <div>
-    <h1>Atrium</h1>
-    <div class="subject">${subject}</div>
-    <div class="meta">Student: ${escapeHtml(req.studentId)} · Task: ${escapeHtml(req.taskId)} · Grade ${difficulty}</div>
-  </div>
-  <img src="${qrDataUrl}" width="80" height="80" />
-</div>
-${problemsHtml}
-<div class="leaf">🌿 Bring this back to earn your next Leaf. 交回这张卡就能获得下一片叶子。</div>
-</body></html>`
-}
-
-/**
- * Model output lands in an HTML document, so it is escaped. Not a security
- * boundary so much as a correctness one: a problem legitimately containing
- * `5 < 8` should print that, not silently open a tag and eat the rest.
- */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 // ─── v0 hardcoded worksheet ───────────────────────────────────────────────────
