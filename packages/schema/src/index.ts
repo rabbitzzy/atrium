@@ -11,16 +11,16 @@
  * importing the platform back would be a cycle.
  */
 
-export type { Student } from './student'
-export type { PaperId } from './paper'
-export type { GeminiSchema } from './gemini'
+export type { Student } from './student.js'
+export type { PaperId } from './paper.js'
+export type { GeminiSchema } from './gemini.js'
 export type {
   OcrStatus,
   StorageBackend,
   CaptureResponse,
   CaptureStreamEvent,
   QualityTier,
-} from './capture'
+} from './capture.js'
 export type {
   CaptureApp,
   CaptureAppServer,
@@ -31,4 +31,4 @@ export type {
   SpokenScript,
   SystemPrompt,
   WaitLine,
-} from './app'
+} from './app.js'

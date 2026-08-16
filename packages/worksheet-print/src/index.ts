@@ -9,6 +9,8 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import puppeteer from 'puppeteer'
 import { generateCard, renderV0Html, renderV0FilledHtml } from './generator.js'
+import { BlueprintError, fetchLanding } from './blueprint.js'
+import { ProblemGenerationError } from './problems.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -43,18 +45,74 @@ app.get('/pdf/v0/filled', async (c) => {
 
 const GenerateSchema = z.object({
   studentId: z.string(),
-  taskId:    z.string().uuid(),
-  kcIds:     z.array(z.string()).min(1),
-  difficulty: z.number().min(1).max(5).default(3),
+  taskId: z.string().uuid(),
+  /**
+   * Which Rooms this Card is for. Omit it and the planner decides — which is
+   * the intended path, since the whole point of BHCS-30 is that the system
+   * knows what a student should work on next.
+   */
+  kcIds: z.array(z.string()).min(1).optional(),
+  difficulty: z.number().min(1).max(5).optional(),
 })
 
-// POST /generate  — produce a print-ready PDF Card
+/**
+ * POST /generate — a print-ready Card for a student's Landing.
+ *
+ * Every failure below returns before anything is spent. That ordering is the
+ * ticket: a Card costs a Leaf and a sheet of paper, and the previous version
+ * would answer a failed generation with a header, a QR code and no questions —
+ * a page the child cannot work and therefore cannot submit, which means they
+ * cannot earn the Leaf back either.
+ */
 app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
   const body = c.req.valid('json')
-  const pdfBuffer = await generateCard(body)
-  c.header('Content-Type', 'application/pdf')
-  c.header('Content-Disposition', `attachment; filename="card-${body.taskId}.pdf"`)
-  return c.body(new Uint8Array(pdfBuffer))
+
+  try {
+    let kcIds = body.kcIds
+    let reason: { en: string; zh: string } | undefined
+
+    if (!kcIds) {
+      const landing = await fetchLanding(body.studentId)
+      // The planner declining to name a Room is a real answer, not an error to
+      // route around. Printing something arbitrary because it said "ask a
+      // teacher" is exactly the paper the Leaf economy exists to prevent.
+      if (!landing) {
+        return c.json(
+          {
+            error: 'no_room_to_assign',
+            detail: 'the planner has nothing to assign — everything is mastered, or a teacher needs to look first',
+            studentId: body.studentId,
+          },
+          409,
+        )
+      }
+      kcIds = [landing.targetKcId]
+      reason = { en: landing.reasonEn, zh: landing.reasonZh }
+    }
+
+    const pdf = await generateCard({
+      studentId: body.studentId,
+      taskId: body.taskId,
+      kcIds,
+      ...(body.difficulty !== undefined ? { difficulty: body.difficulty } : {}),
+    })
+
+    c.header('Content-Type', 'application/pdf')
+    c.header('Content-Disposition', `attachment; filename="card-${body.taskId}.pdf"`)
+    // Why this Card, on the response rather than in the PDF: the kiosk shows it
+    // to the child and the teacher view logs it, and neither needs it printed.
+    c.header('X-Atrium-Rooms', kcIds.join(','))
+    if (reason) c.header('X-Atrium-Reason', encodeURIComponent(reason.en))
+    return c.body(new Uint8Array(pdf))
+  } catch (err) {
+    if (err instanceof ProblemGenerationError) {
+      return c.json({ error: 'generation_failed', detail: err.message }, 502)
+    }
+    if (err instanceof BlueprintError) {
+      return c.json({ error: 'blueprint_unavailable', detail: err.message }, 503)
+    }
+    throw err
+  }
 })
 
 const PORT = Number(process.env['PORT'] ?? 3002)
