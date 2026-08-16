@@ -129,3 +129,50 @@ export async function registerTask(task: TaskRecord): Promise<void> {
     throw new BlueprintError(`could not record the Card: skill-graph answered ${res.status}`)
   }
 }
+
+export class InsufficientLeavesError extends Error {
+  constructor(readonly balance: number) {
+    super('insufficient_leaves')
+  }
+}
+
+/** What this student may print, without spending anything. */
+export async function readLeafBalance(studentId: string): Promise<number> {
+  const out = (await getJson(`/students/${encodeURIComponent(studentId)}/leaves`)) as {
+    balance?: number
+  }
+  return out.balance ?? 0
+}
+
+/**
+ * Take the Leaf (BHCS-38).
+ *
+ * Called after the PDF exists and before it is handed back. That position is
+ * the whole difficulty the ticket names: generation calls a model, rendering
+ * launches a browser, and each can fail. Deduct before them and a child pays
+ * for a Card that never came; deduct after delivery and a retry loop prints
+ * free paper.
+ *
+ * By the time this runs, everything the service can actually observe has
+ * succeeded — the problems exist, the task is registered, the bytes are in
+ * hand. What remains unknown is whether paper comes out of a tray, and no
+ * Vercel function can know that. That unknown is why the recovery is a teacher
+ * grant rather than an automatic refund; see `008_leaf_ledger.sql`.
+ */
+export async function spendLeaf(studentId: string): Promise<number> {
+  let res: Response
+  try {
+    res = await fetch(`${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/leaves/spend`, {
+      method: 'POST',
+    })
+  } catch {
+    throw new BlueprintError(`skill-graph is unreachable at ${SKILL_GRAPH_URL}`)
+  }
+  if (res.status === 402) {
+    const body = (await res.json()) as { balance?: number }
+    throw new InsufficientLeavesError(body.balance ?? 0)
+  }
+  if (!res.ok) throw new BlueprintError(`could not spend a Leaf: skill-graph answered ${res.status}`)
+  const body = (await res.json()) as { balance: number }
+  return body.balance
+}

@@ -530,6 +530,10 @@ router.post('/:id/placement', zValidator('json', PlacementSchema), async (c) => 
  * whenever a teacher revises their view, and a redo must not mint paper. The
  * existing `student_print_state` row is the guard — a student who already has
  * one has already been bootstrapped, whatever their balance is now.
+ *
+ * Goes through `grant_leaves` rather than writing the row and the event
+ * separately, so the balance and the ledger cannot disagree even if this
+ * process dies between them (BHCS-38).
  */
 async function grantBootstrapLeaves(
   db: ReturnType<typeof getSupabase>,
@@ -544,25 +548,72 @@ async function grantBootstrapLeaves(
 
   if (existing) return { balance: existing.leaf_balance as number, granted: 0 }
 
-  // The column defaults carry the bootstrap grant (2 Leaves) — restating it
-  // here would put the number in two places.
-  const { data: created, error } = await db
-    .from('student_print_state')
-    .insert({ student_id: studentId })
-    .select('leaf_balance, lifetime_earned')
-    .single()
-  if (error || !created) return { balance: 0, granted: 0 }
-
-  await db.from('print_events').insert({
-    student_id: studentId,
-    event_type: 'grant',
-    amount: created.lifetime_earned as number,
-    reason: 'bootstrap',
-    granted_by: placedBy,
+  const { data, error } = await db.rpc('grant_leaves', {
+    p_student_id: studentId,
+    p_amount: BOOTSTRAP_LEAVES,
+    p_reason: 'bootstrap',
+    p_granted_by: placedBy,
   })
-
-  return { balance: created.leaf_balance as number, granted: created.lifetime_earned as number }
+  if (error) return { balance: 0, granted: 0 }
+  return { balance: (data as number) ?? 0, granted: BOOTSTRAP_LEAVES }
 }
+
+/** What a student starts an enrolment period with (CLAUDE.md, eco-design.md). */
+const BOOTSTRAP_LEAVES = 2
+
+/**
+ * GET /students/:id/leaves — what this child may print.
+ *
+ * A student with no row has never been placed and therefore has no balance;
+ * reported as zero rather than invented, because a Leaf nobody granted is a
+ * sheet of paper nobody accounted for.
+ */
+router.get('/:id/leaves', async (c) => {
+  const studentId = c.req.param('id')
+  const db = getSupabase()
+  const { data, error } = await db
+    .from('student_print_state')
+    .select('leaf_balance, lifetime_earned, lifetime_spent')
+    .eq('student_id', studentId)
+    .maybeSingle()
+  if (error) return c.json({ error: error.message }, 500)
+
+  return c.json({
+    studentId,
+    balance: (data?.leaf_balance as number | undefined) ?? 0,
+    lifetimeEarned: (data?.lifetime_earned as number | undefined) ?? 0,
+    lifetimeSpent: (data?.lifetime_spent as number | undefined) ?? 0,
+    bootstrapped: data !== null,
+  })
+})
+
+/**
+ * POST /students/:id/leaves/spend — take one Leaf for a Card (BHCS-38).
+ *
+ * 402 is the whole ticket: a student at zero cannot print, by any route. The
+ * decrement and its ledger row happen inside one database function, so no
+ * caller can produce a balance the events do not explain, and two simultaneous
+ * requests cannot both spend the last Leaf.
+ */
+router.post('/:id/leaves/spend', async (c) => {
+  const studentId = c.req.param('id')
+  const db = getSupabase()
+
+  const sessionId = c.req.query('sessionId')
+  const { data, error } = await db.rpc('spend_leaf', {
+    p_student_id: studentId,
+    ...(sessionId ? { p_session_id: sessionId } : {}),
+  })
+  if (error) return c.json({ error: error.message }, 500)
+
+  const balance = data as number
+  if (balance < 0) {
+    // Not an error state and not the child's fault. The kiosk turns this into
+    // "turn in your Card and you'll have another Leaf", never a refusal.
+    return c.json({ error: 'insufficient_leaves', balance: 0, studentId }, 402)
+  }
+  return c.json({ studentId, balance, spent: 1 })
+})
 
 interface StateRow {
   mastery_prob: number
