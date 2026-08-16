@@ -10,9 +10,13 @@
 
 import type { CaptureApp, CaptureContext, Partially, WaitLine } from '@atrium/schema'
 import { qc } from './tiers'
+import { guard, NOT_A_WORKSHEET } from './guard'
 import { worksheetSpeech } from './speech'
 
 export interface WorksheetOcr {
+  /** BHCS-22. False when the page was not a worksheet at all. */
+  is_worksheet?: boolean | null
+  not_worksheet_reason?: string | null
   questions: {
     number: number
     quality: string
@@ -119,7 +123,55 @@ function SummaryCard({ result }: { result: Partially<WorksheetOcr> }) {
  * reorders or filters, so index identity is stable for as long as the row is on
  * screen.
  */
+/**
+ * The page was not a worksheet (BHCS-22).
+ *
+ * Deliberately not an error card. Nothing went wrong and the child did nothing
+ * wrong — very often they did exactly what they meant to, and pressed the
+ * button nearest their hand to show someone a drawing.
+ *
+ * It does not name the doodle app by importing it, which would make one app
+ * depend on another. It names the button's colour, which is what a child
+ * actually navigates by, and the platform's own picker is one tap away.
+ */
+function NotAWorksheet({ detail }: { detail?: string | null }) {
+  return (
+    <div
+      style={{
+        background: '#fff8e8',
+        border: '2px solid #e8c98a',
+        borderRadius: 18,
+        padding: '22px 24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        fontFamily: 'DM Sans, sans-serif',
+      }}
+    >
+      <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e' }}>
+        {NOT_A_WORKSHEET.titleEn}{' '}
+        <span style={{ fontWeight: 600, opacity: 0.75 }}>{NOT_A_WORKSHEET.titleZh}</span>
+      </div>
+      {detail && (
+        <div style={{ fontSize: 15, color: '#7a6a45' }}>
+          It looks more like: {detail}
+        </div>
+      )}
+      <div style={{ fontSize: 16, lineHeight: 1.55, color: '#3a3a4a' }}>
+        {NOT_A_WORKSHEET.bodyEn}
+      </div>
+      <div style={{ fontSize: 15, lineHeight: 1.6, color: '#5a5a6a' }}>
+        {NOT_A_WORKSHEET.bodyZh}
+      </div>
+    </div>
+  )
+}
+
 function WorksheetResult({ result }: { result: WorksheetOcr }) {
+  const verdict = guard(result)
+  if (!verdict.gradeable) {
+    return <NotAWorksheet detail={verdict.reason === 'declared' ? verdict.detail : null} />
+  }
   return (
     <>
       <SummaryCard result={result} />
@@ -144,6 +196,15 @@ function WorksheetResult({ result }: { result: WorksheetOcr }) {
  * the student is halfway through reading.
  */
 function WorksheetStream({ partial }: { partial: Partially<WorksheetOcr> }) {
+  /*
+   * BHCS-22, and the reason `is_worksheet` leads the schema's
+   * `propertyOrdering`: it is the first value to arrive, so the child sees the
+   * retry card immediately rather than watching fabricated questions appear
+   * one by one and then be replaced.
+   */
+  if (partial.is_worksheet === false) {
+    return <NotAWorksheet detail={partial.not_worksheet_reason ?? null} />
+  }
   return (
     <>
       {(partial.questions ?? []).map((q, i) => (

@@ -46,6 +46,7 @@
 import type { SpokenScript } from '@atrium/schema'
 import type { WorksheetOcr } from './index'
 import { qc } from './tiers'
+import { guard, NOT_A_WORKSHEET_SPOKEN } from './guard'
 
 /**
  * Defensive about every field, and not only for streamed results.
@@ -56,6 +57,13 @@ import { qc } from './tiers'
  * what it has.
  */
 export function worksheetSpeech(result: WorksheetOcr): SpokenScript {
+  // BHCS-22. There is no Debrief to read for a page that was not a worksheet,
+  // and reading the summary anyway would speak the fabrication aloud — the one
+  // rendering of it a pre-reader would actually take in.
+  if (!guard(result).gradeable) {
+    return { en: [...NOT_A_WORKSHEET_SPOKEN.en], zh: [...NOT_A_WORKSHEET_SPOKEN.zh] }
+  }
+
   const en: string[] = []
   const zh: string[] = []
 
