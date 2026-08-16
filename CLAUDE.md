@@ -21,7 +21,15 @@ The closest commercial analog is **Squirrel AI's physical learning centers** in 
 ## Domain model (the nouns)
 
 ### Skill Tree
-A directed acyclic graph (not a strict tree). Roots are subjects: `language`, `math`, `art`, `science`, etc. Each root branches into a hierarchy of fine-grained **knowledge components (KCs)** — the academic-research term for atomic skills (e.g. `math/fractions/equivalent-fractions`, `language/zh/radicals/water`). Branches can connect across roots ("cross-over curriculum") via explicit edges — e.g. a word problem KC is co-tagged with `math/arithmetic/multi-step` and `language/en/reading-comprehension`. The tree is **dynamic**: new KCs and edges can be authored or auto-proposed by an LLM (see KCluster, automated KC generation research).
+A directed acyclic graph (not a strict tree). The `subject` column takes `math`, `language`, `art`, `science`; the KC **id** is a path whose root is narrower, because English and Chinese are one subject but two hierarchies — `math`, `lang/en`, `lang/zh`. Each root branches into fine-grained **knowledge components (KCs)** — the academic-research term for atomic skills (e.g. `math/fractions/equivalent`, `lang/zh/chars/radicals`). Note `lang/`, not `language/`: the id prefix is the primary key and every student's history hangs off it, so it is fixed. The tree is **dynamic**: new KCs and edges can be authored or auto-proposed by an LLM (see KCluster, automated KC generation research).
+
+Edges are typed, and the type is load-bearing (`004_pilot_blueprint.sql`):
+
+- **`contains`** — the hierarchy, root → strand → leaf. Structural only. A traversal must never treat it as a learning dependency: `math` is a heading no Card can target, so it can never reach mastery and would lock everything beneath it forever.
+- **`prerequisite`** — between assessable leaves only, meaning what it says: master this before that is worth assigning.
+- **`crossover`** — the cross-over curriculum, co-tagging rather than gating. `math/ops/word-problems-1-step` carries one from `lang/en/reading/main-idea` and one from `lang/zh/reading/sentence-meaning`, because a word problem fails for two entirely different reasons and which one it was is the most useful thing a Debrief can tell a teacher.
+
+Only leaves (`depth = 2`) are assessable. Roots and strands are headings — never assigned, never on a radar chart.
 
 ### Student State
 Per student, per KC: a mastery probability (0–1), a confidence band, the count of attempts, the timestamp of the last interaction. This is the **radar chart** input. Use Bayesian Knowledge Tracing (pyBKT) as a proven baseline; experiment with deep models (DKT/DKT+ via pyKT) only after you have real data flowing. Don't over-engineer this on day one — BKT's four parameters (prior, learn, slip, guess) are adequate to start.

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
+import kcs from './routes/kcs.js'
 import students from './routes/students.js'
 import tasks from './routes/tasks.js'
 
@@ -11,6 +12,7 @@ app.use('*', cors())
 app.use('*', logger())
 
 app.get('/health', (c) => c.json({ ok: true }))
+app.route('/kcs', kcs)
 app.route('/students', students)
 app.route('/tasks', tasks)
 
