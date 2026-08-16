@@ -36,6 +36,8 @@ export interface KcStateRow {
   kc_id: string
   mastery_prob: number
   attempts: number
+  /** Confidence-weighted attempt count (BHCS-29). Drives the band. */
+  evidence: number
   last_seen_at: string | null
 }
 
@@ -49,6 +51,12 @@ export interface RadarPoint {
   /** Posterior where there is history, `bkt_p_l0` where there is not. */
   masteryProb: number
   attempts: number
+  /**
+   * Confidence-weighted attempt count. Carried through rather than derived
+   * from `attempts`, because a display surface needs it to draw a band and a
+   * shaky grade contributes less than one (BHCS-29).
+   */
+  evidence: number
   lastSeenAt: string | null
   /**
    * Whether `masteryProb` is evidence or assumption. False means the number is
@@ -87,6 +95,7 @@ export function buildRadar(blueprint: BlueprintKc[], state: KcStateRow[]): Radar
       difficulty: kc.difficulty,
       masteryProb: seen?.mastery_prob ?? kc.bkt_p_l0,
       attempts: seen?.attempts ?? 0,
+      evidence: seen?.evidence ?? 0,
       lastSeenAt: seen?.last_seen_at ?? null,
       seen: (seen?.attempts ?? 0) > 0,
     }

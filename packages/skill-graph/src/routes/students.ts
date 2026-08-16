@@ -10,6 +10,7 @@ import {
 } from '../models/bkt.js'
 import { derivePlacement, type PlacementRoom } from '../models/placement.js'
 import { buildRadar, type BlueprintKc, type KcStateRow } from '../models/radar.js'
+import { buildSpokes, type Spoke } from '../models/spokes.js'
 
 const router = new Hono()
 
@@ -42,7 +43,7 @@ router.get('/:id/radar', async (c) => {
       blueprintQuery,
       db
         .from('student_kc_state')
-        .select('kc_id, mastery_prob, attempts, last_seen_at')
+        .select('kc_id, mastery_prob, attempts, evidence, last_seen_at')
         .eq('student_id', studentId),
     ])
 
@@ -51,12 +52,44 @@ router.get('/:id/radar', async (c) => {
 
   const points = buildRadar((blueprint ?? []) as BlueprintKc[], (state ?? []) as KcStateRow[])
 
+  // `?spokes=1` adds the drawable version: thirteen strand axes rather than
+  // thirty Rooms (BHCS-33). Computed here rather than in each display surface
+  // so the kiosk, the teacher view and the parent portal cannot drift into
+  // three different numbers for the same child.
+  let spokes: Spoke[] | undefined
+  if (c.req.query('spokes') !== undefined && c.req.query('spokes') !== '0') {
+    const { data: strands, error } = await db
+      .from('kcs')
+      .select('id, label_en, label_zh, subject')
+      .eq('depth', 1)
+      .order('id')
+    if (error) return c.json({ error: error.message }, 500)
+
+    spokes = buildSpokes(
+      points.map((p) => ({
+        kcId: p.kcId,
+        subject: p.subject,
+        masteryProb: p.masteryProb,
+        attempts: p.attempts,
+        evidence: p.evidence,
+        seen: p.seen,
+      })),
+      (strands ?? []).map((s) => ({
+        id: s.id as string,
+        labelEn: s.label_en as string,
+        labelZh: s.label_zh as string,
+        subject: s.subject as string,
+      })),
+    )
+  }
+
   return c.json({
     studentId,
     // True when nothing has ever been recorded — every point below is a prior.
     // The bootstrap eval (BHCS-32) is what this flag is for.
     bootstrapped: (state ?? []).length > 0,
     kcs: points,
+    ...(spokes ? { spokes } : {}),
   })
 })
 
