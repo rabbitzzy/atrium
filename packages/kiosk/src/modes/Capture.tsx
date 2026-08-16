@@ -28,6 +28,7 @@ import CameraStage from '../platform/CameraStage'
 import { SpokenDebrief } from '../platform/ReadAloud'
 import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
+import FloorPlan from './FloorPlan'
 
 interface Props {
   student: Student
@@ -120,6 +121,11 @@ export default function Capture({ student, onSwitchStudent }: Props) {
    * so coming back is instant and sharp.
    */
   const [browsing, setBrowsing] = useState(false)
+  /*
+   * Same reason My work lives in here rather than in App: opening either must
+   * not unmount the camera. They sit over the live view, and it survives.
+   */
+  const [showingProgress, setShowingProgress] = useState(false)
   /**
    * Whether the stream has painted a frame — not whether it has been opened.
    *
@@ -535,14 +541,24 @@ export default function Capture({ student, onSwitchStudent }: Props) {
           read, and one tap gets them their own session.
         */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {!browsing && (
-            <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
+          {!browsing && !showingProgress && (
+            <>
+              <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
+              {/*
+                A peer of My work, not a step inside it. The two answer
+                different questions — "where did my dragon drawing go" and
+                "what am I good at" — and burying either one behind the other
+                costs the child a level of depth, which is where they get lost.
+              */}
+              <button onClick={() => setShowingProgress(true)} style={workBtn}>🌱 What I know 我会的</button>
+            </>
           )}
           <WhoChip student={student} onSwitch={onSwitchStudent} />
         </div>
       </header>
 
       {browsing && <MyWork student={student} onBack={() => setBrowsing(false)} />}
+      {showingProgress && <FloorPlan student={student} onBack={() => setShowingProgress(false)} />}
 
       {/*
         Video element must stay mounted so the ref survives phase changes.

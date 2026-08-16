@@ -31,7 +31,7 @@ describe('buildRadar', () => {
 
   it('distinguishes an assumed prior from measured evidence at the same value', () => {
     const measured: KcStateRow[] = [
-      { kc_id: 'math/fractions/compare', mastery_prob: 0.25, attempts: 4, last_seen_at: '2026-08-12T00:00:00Z' },
+      { kc_id: 'math/fractions/compare', mastery_prob: 0.25, attempts: 4, evidence: 4, last_seen_at: '2026-08-12T00:00:00Z' },
     ]
     const radar = buildRadar(BLUEPRINT, measured)
 
@@ -51,7 +51,7 @@ describe('buildRadar', () => {
   // claim thirty Rooms were tested.
   it('does not call a teacher-placed prior measurement', () => {
     const placed: KcStateRow[] = [
-      { kc_id: 'math/fractions/compare', mastery_prob: 0.7, attempts: 0, last_seen_at: null },
+      { kc_id: 'math/fractions/compare', mastery_prob: 0.7, attempts: 0, evidence: 0, last_seen_at: null },
     ]
     const point = buildRadar(BLUEPRINT, placed).find((p) => p.kcId === 'math/fractions/compare')!
 
@@ -62,7 +62,7 @@ describe('buildRadar', () => {
 
   it('prefers the posterior over the prior wherever history exists', () => {
     const radar = buildRadar(BLUEPRINT, [
-      { kc_id: 'math/ops/multiplication-facts', mastery_prob: 0.92, attempts: 2, last_seen_at: '2026-08-12T00:00:00Z' },
+      { kc_id: 'math/ops/multiplication-facts', mastery_prob: 0.92, attempts: 2, evidence: 2, last_seen_at: '2026-08-12T00:00:00Z' },
     ])
 
     const point = radar.find((p) => p.kcId === 'math/ops/multiplication-facts')!
@@ -74,7 +74,7 @@ describe('buildRadar', () => {
   // missing and quietly substitute the prior, which would read as progress.
   it('does not mistake a zero posterior for absent history', () => {
     const radar = buildRadar([kc('math/fractions/compare', 0.25)], [
-      { kc_id: 'math/fractions/compare', mastery_prob: 0, attempts: 6, last_seen_at: null },
+      { kc_id: 'math/fractions/compare', mastery_prob: 0, attempts: 6, evidence: 6, last_seen_at: null },
     ])
 
     expect(radar[0]!.masteryProb).toBe(0)
@@ -83,7 +83,7 @@ describe('buildRadar', () => {
 
   it('drops state for KCs a later migration retired', () => {
     const radar = buildRadar(BLUEPRINT, [
-      { kc_id: 'lang/zh/hanzi/stroke-order', mastery_prob: 0.8, attempts: 3, last_seen_at: null },
+      { kc_id: 'lang/zh/hanzi/stroke-order', mastery_prob: 0.8, attempts: 3, evidence: 3, last_seen_at: null },
     ])
 
     expect(radar).toHaveLength(3)
