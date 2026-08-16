@@ -18,7 +18,8 @@
     "puppeteer": "^24.42.0",
     "qrcode": "^1.5.4",
     "zod": "^3.23.8",
-    "@atrium/schema": "workspace:*"
+    "@atrium/schema": "workspace:*",
+    "@atrium/card-qr": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

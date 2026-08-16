@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
+import { zValidator } from '@hono/zod-validator'
 import { getSupabase } from '../db/client.js'
 import { planNext, type FloorPlanRoom } from '../models/frontier.js'
 
@@ -99,13 +101,91 @@ router.get('/next/:studentId', async (c) => {
   })
 })
 
+const CreateTaskSchema = z.object({
+  /** Supplied by the caller so the row and the printed QR carry the same id. */
+  id: z.string().uuid(),
+  titleEn: z.string().min(1),
+  titleZh: z.string().min(1),
+  difficulty: z.number().int().min(1).max(5),
+  estMinutes: z.number().int().positive().optional(),
+  kcIds: z.array(z.string()).min(1),
+  /** What was actually asked, and where the answers will be on the page. */
+  rubric: z.record(z.unknown()),
+})
+
+/**
+ * POST /tasks — record a Card that has been generated (BHCS-37).
+ *
+ * Without this the round trip has no far end. The printer put a task id in the
+ * QR header, nothing ever wrote a `tasks` row, and so a scanned Card decoded to
+ * an id that resolved to nothing — the system could read whose page it was and
+ * still had no idea what had been asked on it.
+ *
+ * The id comes from the caller rather than the database, because the QR is
+ * printed from it and the two have to be the same string. Idempotent on that
+ * id: a reprint of the same Card is the same task, not a second one.
+ */
+router.post('/', zValidator('json', CreateTaskSchema), async (c) => {
+  const body = c.req.valid('json')
+  const db = getSupabase()
+
+  // Only assessable leaves — the same rule the attempt route enforces, checked
+  // here too because this is where a Card commits to what it is about.
+  const { data: kcs, error: kcError } = await db
+    .from('kcs')
+    .select('id, depth')
+    .in('id', body.kcIds)
+  if (kcError) return c.json({ error: kcError.message }, 500)
+
+  const found = new Set((kcs ?? []).map((k) => k.id as string))
+  const unknown = body.kcIds.filter((id) => !found.has(id))
+  if (unknown.length) return c.json({ error: 'unknown kcIds', unknown }, 400)
+  const headings = (kcs ?? []).filter((k) => k.depth !== 2).map((k) => k.id as string)
+  if (headings.length) return c.json({ error: 'a Card cannot target a heading', headings }, 400)
+
+  const { error: taskError } = await db.from('tasks').upsert(
+    {
+      id: body.id,
+      title_en: body.titleEn,
+      title_zh: body.titleZh,
+      difficulty: body.difficulty,
+      ...(body.estMinutes !== undefined ? { est_minutes: body.estMinutes } : {}),
+      rubric_json: body.rubric,
+    },
+    { onConflict: 'id' },
+  )
+  if (taskError) return c.json({ error: taskError.message }, 500)
+
+  const { error: linkError } = await db
+    .from('task_kcs')
+    .upsert(
+      body.kcIds.map((kcId) => ({ task_id: body.id, kc_id: kcId })),
+      { onConflict: 'task_id,kc_id' },
+    )
+  if (linkError) return c.json({ error: linkError.message }, 500)
+
+  return c.json({ id: body.id, kcIds: body.kcIds }, 201)
+})
+
 // GET /tasks/:id  — task detail with rubric
 router.get('/:id', async (c) => {
   const taskId = c.req.param('id')
   const db = getSupabase()
-  const { data, error } = await db.from('tasks').select('*').eq('id', taskId).single()
+
+  const { data: task, error } = await db.from('tasks').select('*').eq('id', taskId).single()
   if (error) return c.json({ error: error.message }, 404)
-  return c.json(data)
+
+  // The Rooms this Card is about, with their labels — everything the evaluator
+  // needs to grade it and everything a Debrief needs to name it. One call,
+  // because the scan path is on the 30-second budget.
+  const { data: links } = await db.from('task_kcs').select('kc_id').eq('task_id', taskId)
+  const kcIds = (links ?? []).map((l) => l.kc_id as string)
+
+  const { data: kcs } = kcIds.length
+    ? await db.from('kcs').select('id, label_en, label_zh, subject, difficulty').in('id', kcIds)
+    : { data: [] }
+
+  return c.json({ ...task, kcs: kcs ?? [] })
 })
 
 export default router
