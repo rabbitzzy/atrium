@@ -92,3 +92,40 @@ export async function fetchLanding(studentId: string): Promise<Landing | null> {
     reasonZh: plan.reason?.zh ?? '',
   }
 }
+
+export interface TaskRecord {
+  id: string
+  titleEn: string
+  titleZh: string
+  difficulty: number
+  kcIds: string[]
+  rubric: Record<string, unknown>
+}
+
+/**
+ * Register the Card before it is printed (BHCS-37).
+ *
+ * The far end of the round trip. A task id in a QR header is only useful if
+ * something can be looked up with it, and until now nothing wrote the row — a
+ * scanned Card could say whose page it was and still leave the system with no
+ * idea what had been asked on it.
+ *
+ * Called before the PDF is rendered, deliberately. A Card that reaches paper
+ * without a task behind it is unscannable work: the child does it, hands it
+ * back, and the station cannot grade it or award the Leaf.
+ */
+export async function registerTask(task: TaskRecord): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${SKILL_GRAPH_URL}/tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(task),
+    })
+  } catch {
+    throw new BlueprintError(`skill-graph is unreachable at ${SKILL_GRAPH_URL}`)
+  }
+  if (!res.ok) {
+    throw new BlueprintError(`could not record the Card: skill-graph answered ${res.status}`)
+  }
+}

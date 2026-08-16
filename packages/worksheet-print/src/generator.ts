@@ -1,7 +1,8 @@
 import QRCode from 'qrcode'
 import puppeteer from 'puppeteer'
-import { fetchRooms } from './blueprint.js'
-import { renderFixedCard } from './template.js'
+import { encodeCardQr } from '@atrium/card-qr'
+import { fetchRooms, registerTask } from './blueprint.js'
+import { answerRegions, renderFixedCard } from './template.js'
 import {
   buildProblemPrompt,
   PROBLEM_SCHEMA,
@@ -43,13 +44,29 @@ export async function generateCard(req: CardRequest): Promise<Buffer> {
   const problems = await generateProblems(rooms)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
 
+  // Registered before anything reaches paper. A Card printed without a task
+  // behind it is unscannable work: the child does it, hands it back, and the
+  // station can neither grade it nor award the Leaf.
+  const subject = rooms.map((r) => `${r.labelEn} / ${r.labelZh}`).join(' + ')
+  await registerTask({
+    id: req.taskId,
+    titleEn: rooms.map((r) => r.labelEn).join(' + '),
+    titleZh: rooms.map((r) => r.labelZh).join(' + '),
+    difficulty,
+    kcIds: rooms.map((r) => r.id),
+    // What was asked and where the answers will be. The evaluator needs both,
+    // and after BHCS-36 the regions are knowable before the page exists.
+    rubric: { problems, answerRegions: answerRegions(problems.length) },
+  })
+
   const qrDataUrl = await QRCode.toDataURL(
-    JSON.stringify({ studentId: req.studentId, taskId: req.taskId }),
+    encodeCardQr({ studentId: req.studentId, taskId: req.taskId }),
+    { errorCorrectionLevel: 'M', margin: 1, width: 400 },
   )
   const html = renderFixedCard(problems, {
     studentId: req.studentId,
     taskId: req.taskId,
-    subject: rooms.map((r) => `${r.labelEn} / ${r.labelZh}`).join(' + '),
+    subject,
     difficulty,
     qrDataUrl,
   })
