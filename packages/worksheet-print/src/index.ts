@@ -11,12 +11,33 @@ import puppeteer from 'puppeteer'
 import { generateCard, renderV0Html, renderV0FilledHtml } from './generator.js'
 import { BlueprintError, fetchLanding } from './blueprint.js'
 import { ProblemGenerationError } from './problems.js'
+import { answerRegions, fiducialRegions, PAGE_H, PAGE_W } from './template.js'
 
 const app = new Hono()
 app.use('*', cors())
 app.use('*', logger())
 
 app.get('/health', (c) => c.json({ ok: true }))
+
+/**
+ * GET /template/regions — where the answers are, on every Card ever printed.
+ *
+ * Static, and that is the entire point of BHCS-36. Because the layout is fixed,
+ * this answer does not depend on which Card you are holding, which student it
+ * belongs to, or what the questions say. The evaluator does not have to find
+ * the answer boxes in a photograph; it corrects the image against the four
+ * corner marks and then crops by multiplication.
+ *
+ * Fractions of the page rather than pixels or millimetres, so a capture at any
+ * resolution uses the same numbers.
+ */
+app.get('/template/regions', (c) =>
+  c.json({
+    page: { widthMm: PAGE_W, heightMm: PAGE_H },
+    answers: answerRegions(),
+    fiducials: fiducialRegions(),
+  }),
+)
 
 // GET /print/v0  — serve the hardcoded v0 worksheet as printable HTML
 app.get('/print/v0', async (c) => {
