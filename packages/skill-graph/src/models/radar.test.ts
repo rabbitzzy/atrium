@@ -46,6 +46,20 @@ describe('buildRadar', () => {
     expect(assumed.seen).toBe(false)
   })
 
+  // BHCS-32 writes a row for every Room in the Blueprint, so "has a row" stopped
+  // meaning "has been measured". A teacher's placement must not make the radar
+  // claim thirty Rooms were tested.
+  it('does not call a teacher-placed prior measurement', () => {
+    const placed: KcStateRow[] = [
+      { kc_id: 'math/fractions/compare', mastery_prob: 0.7, attempts: 0, last_seen_at: null },
+    ]
+    const point = buildRadar(BLUEPRINT, placed).find((p) => p.kcId === 'math/fractions/compare')!
+
+    expect(point.masteryProb).toBe(0.7) // the placement moved the number
+    expect(point.seen).toBe(false) // but nobody has asked the child
+    expect(point.attempts).toBe(0)
+  })
+
   it('prefers the posterior over the prior wherever history exists', () => {
     const radar = buildRadar(BLUEPRINT, [
       { kc_id: 'math/ops/multiplication-facts', mastery_prob: 0.92, attempts: 2, last_seen_at: '2026-08-12T00:00:00Z' },

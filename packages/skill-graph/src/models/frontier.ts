@@ -202,9 +202,31 @@ function score(room: FloorPlanRoom, mastered: Set<string>): PlanCandidate {
   // waiting on. Scoring it 0 would bury exactly the Rooms a new student needs.
   const readiness = total === 0 ? 1 : done.length / total
 
-  // What the band was reaching for, as a preference rather than a gate: how
-  // close is this Room to being finished?
-  const proximity = Math.min(1, Math.max(0, room.masteryProb) / MASTERY_GATE)
+  // What the band was reaching for, as a preference rather than a gate — but
+  // which of two questions that is depends on whether the number means
+  // anything yet.
+  //
+  // With evidence behind it, the useful question is *how close to finished*:
+  // a Room at 0.85 after four attempts is one Card from done, and finishing it
+  // is worth more than starting something else.
+  //
+  // With no evidence — every Room after a teacher's placement (BHCS-32) — that
+  // same question inverts into "assign whatever an adult said they already
+  // know", which is how a third-grader placed at grade 3 gets handed CVC word
+  // decoding as their first Card. Reading level research in this repo is blunt
+  // about the cost of that: babyish is its own kind of shaming.
+  //
+  // With only a prior, the useful question is *how uncertain*. A prior near 0.5
+  // is the teacher saying "this is exactly their edge", which is both the most
+  // informative Room to test and the right place to start work. Peaks at 0.5,
+  // falls to zero at either extreme.
+  const closeness = Math.min(1, Math.max(0, room.masteryProb) / MASTERY_GATE)
+  const uncertainty = 1 - 2 * Math.abs(Math.max(0, Math.min(1, room.masteryProb)) - 0.5)
+
+  // How much the number has earned the right to be read as progress. Zero at no
+  // evidence, 0.6 at three attempts, 0.83 at ten.
+  const trust = room.evidence / (room.evidence + 2)
+  const proximity = trust * closeness + (1 - trust) * uncertainty
 
   // product/prd.md §3 — recent failures weigh higher. A Room just got wrong is
   // the most useful thing to hand back, right up until the point where handing
@@ -222,8 +244,11 @@ function score(room: FloorPlanRoom, mastered: Set<string>): PlanCandidate {
       weight: W_READINESS,
     },
     {
-      name: 'closeness to mastery',
-      detail: `${room.masteryProb.toFixed(2)} against a ${MASTERY_GATE} gate, from ${room.attempts} attempt${room.attempts === 1 ? '' : 's'}`,
+      name: trust >= 0.5 ? 'closeness to mastery' : 'how much is still unknown',
+      detail:
+        trust >= 0.5
+          ? `${room.masteryProb.toFixed(2)} against a ${MASTERY_GATE} gate, from ${room.attempts} attempt${room.attempts === 1 ? '' : 's'}`
+          : `${room.masteryProb.toFixed(2)} is still a prior — ${room.attempts === 0 ? 'nobody has asked yet' : `only ${room.attempts} attempt${room.attempts === 1 ? '' : 's'} so far`}`,
       value: proximity,
       weight: W_PROXIMITY,
     },
@@ -269,9 +294,14 @@ function explain(c: PlanCandidate, lang: 'en' | 'zh'): string {
       : `「${label}」最近做错了，趁着印象还新，值得再练一次。`
   }
   if (proximity.value > 0.6) {
+    if (proximity.name === 'closeness to mastery') {
+      return lang === 'en'
+        ? `${label} is close to finished — ${c.masteryProb.toFixed(2)} against a ${MASTERY_GATE} gate. One more Card should settle it.`
+        : `「${label}」快要掌握了——目前 ${c.masteryProb.toFixed(2)}，门槛是 ${MASTERY_GATE}。再做一张卡应该就稳了。`
+    }
     return lang === 'en'
-      ? `${label} is close to finished — ${c.masteryProb.toFixed(2)} against a ${MASTERY_GATE} gate. One more Card should settle it.`
-      : `「${label}」快要掌握了——目前 ${c.masteryProb.toFixed(2)}，门槛是 ${MASTERY_GATE}。再做一张卡应该就稳了。`
+      ? `${label} sits right at the edge of what this student can do, and nothing has tested it yet — the most useful place to start.`
+      : `「${label}」正处在这位学生能力的边缘，而且还没有测试过，是最值得先做的地方。`
   }
   if (readiness.value === 1 && readiness.detail !== 'nothing has to come first') {
     // Labels are noun phrases and some carry their own article ("The four
