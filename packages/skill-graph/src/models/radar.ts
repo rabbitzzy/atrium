@@ -51,8 +51,16 @@ export interface RadarPoint {
   attempts: number
   lastSeenAt: string | null
   /**
-   * Whether `masteryProb` is evidence or assumption. False means the student
-   * has never attempted this KC and the number is the prior.
+   * Whether `masteryProb` is evidence or assumption. False means the number is
+   * a prior nobody has tested — either the Blueprint's own, or one a teacher
+   * placed the student at.
+   *
+   * This asks `attempts > 0` rather than "is there a row", and the distinction
+   * became load-bearing with BHCS-32. A placement writes a `student_kc_state`
+   * row for every Room in the Blueprint, so row-existence would report `true`
+   * everywhere the moment a teacher filled in the form — the radar would claim
+   * measurement for thirty Rooms the child had never been asked about, which is
+   * the exact lie this flag exists to prevent.
    */
   seen: boolean
 }
@@ -80,7 +88,7 @@ export function buildRadar(blueprint: BlueprintKc[], state: KcStateRow[]): Radar
       masteryProb: seen?.mastery_prob ?? kc.bkt_p_l0,
       attempts: seen?.attempts ?? 0,
       lastSeenAt: seen?.last_seen_at ?? null,
-      seen: seen !== undefined,
+      seen: (seen?.attempts ?? 0) > 0,
     }
   })
 }

@@ -8,6 +8,7 @@ import {
   confidenceBand,
   type BktParams,
 } from '../models/bkt.js'
+import { derivePlacement, type PlacementRoom } from '../models/placement.js'
 import { buildRadar, type BlueprintKc, type KcStateRow } from '../models/radar.js'
 
 const router = new Hono()
@@ -325,6 +326,152 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
     updates,
   })
 })
+
+const PlacementSchema = z.object({
+  /** Who is asserting this. Recorded so the claim has an author. */
+  placedBy: z.string().min(1),
+  /** Subject-root id to grade band, e.g. `{ "math": 3, "lang/zh": 1 }`. */
+  levels: z.record(z.number().int().min(1).max(5)),
+  rooms: z.record(z.enum(['mastered', 'shaky', 'needs-help', 'not-yet'])).optional(),
+  note: z.string().optional(),
+})
+
+/**
+ * POST /students/:id/placement — a teacher says where this child starts.
+ *
+ * Flywheel step 1, and the cheap answer to the cold start: BKT needs five to
+ * ten attempts per skill before it is worth anything, so the first six weeks
+ * run on priors either way. This decides whether those priors came from a
+ * teacher who knows the child or from a table of defaults.
+ *
+ * Everything written here is a prior and nothing is evidence. The rows carry
+ * `attempts: 0` and `evidence: 0`, which is what stops BHCS-30 reading a
+ * teacher's guess as mastery and skipping the Room — the failure mode where a
+ * child is never asked about a skill an adult assumed they had.
+ */
+router.post('/:id/placement', zValidator('json', PlacementSchema), async (c) => {
+  const studentId = c.req.param('id')
+  const body = c.req.valid('json')
+  const db = getSupabase()
+
+  const [{ data: leaves, error: kcError }, { data: existing, error: stateError }] = await Promise.all([
+    db.from('kcs').select('id, label_en, subject, difficulty, bkt_p_l0').eq('depth', 2).order('id'),
+    db.from('student_kc_state').select('kc_id, attempts').eq('student_id', studentId),
+  ])
+  if (kcError) return c.json({ error: kcError.message }, 500)
+  if (stateError) return c.json({ error: stateError.message }, 500)
+
+  const attemptsByKc = new Map((existing ?? []).map((r) => [r.kc_id as string, r.attempts as number]))
+  const rooms: PlacementRoom[] = (leaves ?? []).map((kc) => ({
+    kcId: kc.id as string,
+    labelEn: kc.label_en as string,
+    subject: kc.subject as string,
+    difficulty: kc.difficulty as number,
+    bktPL0: kc.bkt_p_l0 as number,
+    attempts: attemptsByKc.get(kc.id as string) ?? 0,
+  }))
+
+  const claim = body.rooms ? { levels: body.levels, rooms: body.rooms } : { levels: body.levels }
+  const result = derivePlacement(claim, rooms)
+
+  // A claim that names nothing real is a typo, not a placement. Refuse it
+  // rather than writing a Floor plan the teacher did not intend.
+  if (!result.seeded.length && (result.unknownRoots.length || result.unknownRooms.length)) {
+    return c.json(
+      {
+        error: 'placement matched no Rooms',
+        unknownRoots: result.unknownRoots,
+        unknownRooms: result.unknownRooms,
+      },
+      400,
+    )
+  }
+
+  const now = new Date().toISOString()
+  if (result.seeded.length) {
+    const { error } = await db.from('student_kc_state').upsert(
+      result.seeded.map((s) => ({
+        student_id: studentId,
+        kc_id: s.kcId,
+        mastery_prob: s.masteryProb,
+        attempts: 0,
+        evidence: 0,
+        updated_at: now,
+        // last_seen_at stays null: nobody has seen this child work on it.
+      })),
+      { onConflict: 'student_id,kc_id' },
+    )
+    if (error) return c.json({ error: error.message }, 500)
+  }
+
+  const placementRow: Record<string, unknown> = {
+    student_id: studentId,
+    placed_by: body.placedBy,
+    claim_json: claim,
+    seeded_kc_ids: result.seeded.map((s) => s.kcId),
+  }
+  if (body.note) placementRow['note'] = body.note
+
+  const { data: placement, error: placementError } = await db
+    .from('student_placements')
+    .insert(placementRow)
+    .select('id')
+    .single()
+  if (placementError) return c.json({ error: placementError.message }, 500)
+
+  const leaves_ = await grantBootstrapLeaves(db, studentId, body.placedBy)
+
+  return c.json({
+    studentId,
+    placementId: placement.id as string,
+    seeded: result.seeded,
+    skipped: result.skipped,
+    unknownRoots: result.unknownRoots,
+    unknownRooms: result.unknownRooms,
+    leaves: leaves_,
+  })
+})
+
+/**
+ * The two Leaves that make a first Card printable (BHCS-32, eco-design.md).
+ *
+ * Idempotent, and that matters more than it looks: a placement is redone
+ * whenever a teacher revises their view, and a redo must not mint paper. The
+ * existing `student_print_state` row is the guard — a student who already has
+ * one has already been bootstrapped, whatever their balance is now.
+ */
+async function grantBootstrapLeaves(
+  db: ReturnType<typeof getSupabase>,
+  studentId: string,
+  placedBy: string,
+): Promise<{ balance: number; granted: number }> {
+  const { data: existing } = await db
+    .from('student_print_state')
+    .select('leaf_balance')
+    .eq('student_id', studentId)
+    .maybeSingle()
+
+  if (existing) return { balance: existing.leaf_balance as number, granted: 0 }
+
+  // The column defaults carry the bootstrap grant (2 Leaves) — restating it
+  // here would put the number in two places.
+  const { data: created, error } = await db
+    .from('student_print_state')
+    .insert({ student_id: studentId })
+    .select('leaf_balance, lifetime_earned')
+    .single()
+  if (error || !created) return { balance: 0, granted: 0 }
+
+  await db.from('print_events').insert({
+    student_id: studentId,
+    event_type: 'grant',
+    amount: created.lifetime_earned as number,
+    reason: 'bootstrap',
+    granted_by: placedBy,
+  })
+
+  return { balance: created.leaf_balance as number, granted: created.lifetime_earned as number }
+}
 
 interface StateRow {
   mastery_prob: number

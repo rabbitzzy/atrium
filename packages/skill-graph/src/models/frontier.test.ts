@@ -136,6 +136,43 @@ describe('planNext', () => {
     expect(plan.reasonZh.length).toBeGreaterThan(0)
   })
 
+  // BHCS-32 made this reachable: after a teacher's placement every Room carries
+  // a prior and no evidence, and ranking those by closeness-to-mastery hands a
+  // third-grader the Room an adult said they already knew.
+  it('starts an unmeasured student where the estimate is least certain', () => {
+    const plan = planNext([
+      room('already-knows', { masteryProb: 0.85, attempts: 0, evidence: 0 }),
+      room('at-their-edge', { masteryProb: 0.45, attempts: 0, evidence: 0 }),
+      room('way-beyond', { masteryProb: 0.15, attempts: 0, evidence: 0 }),
+    ])
+    expect(plan.targetKcId).toBe('at-their-edge')
+    expect(plan.candidates[0]!.factors[1]!.name).toBe('how much is still unknown')
+  })
+
+  it('flips to closeness-to-mastery once the number has been earned', () => {
+    // Same two Rooms as above, but now the high one has been demonstrated.
+    const plan = planNext([
+      room('demonstrated', { masteryProb: 0.85, attempts: 6, evidence: 6 }),
+      room('at-their-edge', { masteryProb: 0.45, attempts: 6, evidence: 6 }),
+    ])
+    expect(plan.targetKcId).toBe('demonstrated')
+    expect(plan.candidates[0]!.factors[1]!.name).toBe('closeness to mastery')
+    expect(plan.reasonEn).toContain('close to finished')
+  })
+
+  it('says plainly when it is starting somewhere untested', () => {
+    // Not a bootstrap — the student has worked elsewhere — but the Room being
+    // chosen is still carrying nothing but a teacher's estimate.
+    const plan = planNext([
+      done('worked-here'),
+      room('edge', { masteryProb: 0.5, attempts: 0, evidence: 0 }),
+    ])
+    expect(plan.outcome).toBe('planned')
+    expect(plan.targetKcId).toBe('edge')
+    expect(plan.reasonEn).toContain('nothing has tested it yet')
+    expect(plan.candidates[0]!.factors[1]!.detail).toContain('still a prior')
+  })
+
   it('prefers the Room that is nearly finished over one barely begun', () => {
     const plan = planNext([
       room('nearly', { masteryProb: 0.85, attempts: 2, evidence: 2 }),
