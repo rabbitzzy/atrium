@@ -1,7 +1,7 @@
 import QRCode from 'qrcode'
 import puppeteer from 'puppeteer'
 import { encodeCardQr } from '@atrium/card-qr'
-import { fetchRooms, registerTask } from './blueprint.js'
+import { fetchRooms, registerTask, spendLeaf } from './blueprint.js'
 import { answerRegions, renderFixedCard } from './template.js'
 import {
   buildProblemPrompt,
@@ -39,7 +39,7 @@ export interface CardRequest {
  * the render, so a generation failure throws while nothing has been committed.
  * Everything downstream of here spends something.
  */
-export async function generateCard(req: CardRequest): Promise<Buffer> {
+export async function generateCard(req: CardRequest): Promise<{ pdf: Buffer; balance: number }> {
   const rooms = await fetchRooms(req.kcIds)
   const problems = await generateProblems(rooms)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
@@ -72,14 +72,21 @@ export async function generateCard(req: CardRequest): Promise<Buffer> {
   })
 
   const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
+  let pdf: Buffer
   try {
     const page = await browser.newPage()
     await page.setContent(html, { waitUntil: 'networkidle0' })
-    const pdf = await page.pdf({ format: 'Letter', printBackground: true })
-    return Buffer.from(pdf)
+    pdf = Buffer.from(await page.pdf({ format: 'Letter', printBackground: true }))
   } finally {
     await browser.close()
   }
+
+  // The Leaf is taken here and nowhere earlier: everything the service can
+  // observe has now succeeded, and the bytes are in hand. Throws 402 upward if
+  // the balance went to zero between the check at the top and this moment,
+  // which is the only ordering that cannot print free paper (BHCS-38).
+  const balance = await spendLeaf(req.studentId)
+  return { pdf, balance }
 }
 
 /**

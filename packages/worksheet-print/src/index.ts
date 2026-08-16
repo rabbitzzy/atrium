@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import puppeteer from 'puppeteer'
 import { generateCard, renderV0Html, renderV0FilledHtml } from './generator.js'
-import { BlueprintError, fetchLanding } from './blueprint.js'
+import { BlueprintError, fetchLanding, InsufficientLeavesError, readLeafBalance } from './blueprint.js'
 import { ProblemGenerationError } from './problems.js'
 import { answerRegions, fiducialRegions, PAGE_H, PAGE_W } from './template.js'
 
@@ -89,6 +89,17 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
   const body = c.req.valid('json')
 
   try {
+    /*
+     * Checked before the model is called, and checked again by the spend at
+     * the end. This one is for the child: a student at zero should be told in
+     * a second rather than after twenty seconds of generating a Card they
+     * cannot have. The spend is the one that is authoritative.
+     */
+    const balance = await readLeafBalance(body.studentId)
+    if (balance < 1) {
+      return c.json({ error: 'insufficient_leaves', balance, studentId: body.studentId }, 402)
+    }
+
     let kcIds = body.kcIds
     let reason: { en: string; zh: string } | undefined
 
@@ -111,7 +122,7 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
       reason = { en: landing.reasonEn, zh: landing.reasonZh }
     }
 
-    const pdf = await generateCard({
+    const { pdf, balance: remaining } = await generateCard({
       studentId: body.studentId,
       taskId: body.taskId,
       kcIds,
@@ -123,9 +134,13 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
     // Why this Card, on the response rather than in the PDF: the kiosk shows it
     // to the child and the teacher view logs it, and neither needs it printed.
     c.header('X-Atrium-Rooms', kcIds.join(','))
+    c.header('X-Atrium-Leaves', String(remaining))
     if (reason) c.header('X-Atrium-Reason', encodeURIComponent(reason.en))
     return c.body(new Uint8Array(pdf))
   } catch (err) {
+    if (err instanceof InsufficientLeavesError) {
+      return c.json({ error: 'insufficient_leaves', balance: err.balance, studentId: body.studentId }, 402)
+    }
     if (err instanceof ProblemGenerationError) {
       return c.json({ error: 'generation_failed', detail: err.message }, 502)
     }
