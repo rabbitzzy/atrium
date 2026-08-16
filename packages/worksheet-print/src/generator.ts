@@ -1,4 +1,14 @@
 import QRCode from 'qrcode'
+import puppeteer from 'puppeteer'
+import { fetchRooms } from './blueprint.js'
+import {
+  buildProblemPrompt,
+  PROBLEM_SCHEMA,
+  ProblemGenerationError,
+  validateProblems,
+  type GeneratedProblem,
+  type TargetRoom,
+} from './problems.js'
 
 const GEMINI_MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
@@ -7,85 +17,149 @@ export interface CardRequest {
   studentId: string
   taskId: string
   kcIds: string[]
-  difficulty: number
+  /**
+   * Optional override. Left out — which is the normal case — the Card is set at
+   * the hardest Room it targets, because 004 seeds every Room with the grade
+   * band it belongs to and that is a better answer than a caller's guess.
+   */
+  difficulty?: number
 }
 
+/**
+ * A Card, as a PDF (BHCS-35).
+ *
+ * This used to return `Buffer.from(html)` under a `Content-Type:
+ * application/pdf` header — HTML bytes wearing a PDF label, which no printer
+ * would render. The v0 routes had been going through Puppeteer correctly all
+ * along; the generated path never did.
+ *
+ * Order matters: problems are generated and validated *before* the QR code and
+ * the render, so a generation failure throws while nothing has been committed.
+ * Everything downstream of here spends something.
+ */
 export async function generateCard(req: CardRequest): Promise<Buffer> {
-  const problems = await generateProblems(req)
-  const qrDataUrl = await QRCode.toDataURL(JSON.stringify({ studentId: req.studentId, taskId: req.taskId }))
-  const html = renderCardHtml({ problems, qrDataUrl, req })
-  return Buffer.from(html, 'utf-8')
+  const rooms = await fetchRooms(req.kcIds)
+  const problems = await generateProblems(rooms)
+  const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
+
+  const qrDataUrl = await QRCode.toDataURL(
+    JSON.stringify({ studentId: req.studentId, taskId: req.taskId }),
+  )
+  const html = renderCardHtml({ problems, qrDataUrl, req, rooms, difficulty })
+
+  const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
+  try {
+    const page = await browser.newPage()
+    await page.setContent(html, { waitUntil: 'networkidle0' })
+    const pdf = await page.pdf({ format: 'Letter', printBackground: true })
+    return Buffer.from(pdf)
+  } finally {
+    await browser.close()
+  }
 }
 
-interface GeneratedProblem {
-  number: number
-  prompt: string
-  promptZh: string
-  answerLines: number
-}
-
-async function generateProblems(req: CardRequest): Promise<GeneratedProblem[]> {
+/**
+ * Ask Gemini for problems, and refuse anything that would waste a sheet.
+ *
+ * Schema-constrained rather than parsed hopefully: the old call asked only for
+ * `response_mime_type: application/json` and swallowed a parse failure into an
+ * empty array, which rendered a Card with a header, a QR code and no questions.
+ */
+async function generateProblems(rooms: TargetRoom[]): Promise<GeneratedProblem[]> {
   const res = await fetch(`${GEMINI_URL}?key=${process.env['GEMINI_API_KEY']}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system_instruction: {
-        parts: [{
-          text: `You generate K-5 worksheet problems for a bilingual Chinese-English learning hub.
-Output must be valid JSON: an array of objects with keys: number (int), prompt (English), promptZh (Chinese), answerLines (int 1-4).
-Problems must target the given knowledge components at the given difficulty (1=easy, 5=hard).
-Keep problems age-appropriate, unambiguous, and printable (no URLs, no images).`,
-        }],
+      contents: [{ role: 'user', parts: [{ text: buildProblemPrompt(rooms) }] }],
+      generationConfig: {
+        response_mime_type: 'application/json',
+        response_schema: PROBLEM_SCHEMA,
       },
-      contents: [{
-        role: 'user',
-        parts: [{ text: `Generate 5 problems for KCs: ${req.kcIds.join(', ')}. Difficulty: ${req.difficulty}/5.` }],
-      }],
-      generationConfig: { response_mime_type: 'application/json' },
     }),
   })
-  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`)
-  const data = await res.json() as { candidates: { content: { parts: { text: string }[] } }[] }
-  const raw = data.candidates[0]?.content.parts[0]?.text ?? '[]'
-  try {
-    return JSON.parse(raw) as GeneratedProblem[]
-  } catch {
-    return []
+  if (!res.ok) {
+    throw new ProblemGenerationError(`Gemini answered ${res.status}: ${await res.text()}`)
   }
+
+  const data = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[]
+  }
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!raw) throw new ProblemGenerationError('Gemini returned no content')
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new ProblemGenerationError('Gemini returned text that is not JSON')
+  }
+  return validateProblems(parsed)
 }
 
-function renderCardHtml(args: { problems: GeneratedProblem[]; qrDataUrl: string; req: CardRequest }): string {
-  const { problems, qrDataUrl, req } = args
-  const problemsHtml = problems.map((p) => `
+function renderCardHtml(args: {
+  problems: GeneratedProblem[]
+  qrDataUrl: string
+  req: CardRequest
+  rooms: TargetRoom[]
+  difficulty: number
+}): string {
+  const { problems, qrDataUrl, req, rooms, difficulty } = args
+  const problemsHtml = problems
+    .map(
+      (p) => `
     <div class="problem">
       <div class="num">${p.number}.</div>
       <div class="body">
-        <div class="en">${p.prompt}</div>
-        <div class="zh">${p.promptZh}</div>
+        <div class="en">${escapeHtml(p.promptEn)}</div>
+        <div class="zh">${escapeHtml(p.promptZh)}</div>
         ${'<div class="answer-line"></div>'.repeat(p.answerLines)}
       </div>
-    </div>`).join('')
+    </div>`,
+    )
+    .join('')
+
+  // The Rooms by name, in both languages. A teacher picking this off the
+  // printer should be able to see what it is for without decoding a path.
+  const subject = rooms.map((r) => `${escapeHtml(r.labelEn)} / ${escapeHtml(r.labelZh)}`).join(' + ')
+
   return `<!doctype html><html><head><meta charset="UTF-8"/>
 <style>
   body { font-family: 'DM Sans', sans-serif; max-width: 680px; margin: 32px auto; color: #1a1a2e; }
-  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; margin-bottom: 24px; }
-  .header h1 { font-size: 22px; margin: 0; }
-  .meta { font-size: 12px; color: #666; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; margin-bottom: 24px; }
+  .header h1 { font-size: 22px; margin: 0 0 6px; }
+  .subject { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+  .meta { font-size: 11px; color: #666; }
   .problem { display: flex; gap: 12px; margin-bottom: 28px; }
   .num { font-weight: 700; font-size: 18px; min-width: 24px; }
   .en { font-size: 16px; margin-bottom: 4px; }
   .zh { font-size: 14px; color: #555; margin-bottom: 8px; }
   .answer-line { border-bottom: 1px solid #bbb; height: 28px; margin-bottom: 6px; }
+  .leaf { margin-top: 28px; font-size: 11px; color: #3f7a5e; }
 </style></head><body>
 <div class="header">
   <div>
-    <h1>Atrium — Learning Card</h1>
-    <div class="meta">Student: ${req.studentId} · Task: ${req.taskId}</div>
+    <h1>Atrium</h1>
+    <div class="subject">${subject}</div>
+    <div class="meta">Student: ${escapeHtml(req.studentId)} · Task: ${escapeHtml(req.taskId)} · Grade ${difficulty}</div>
   </div>
   <img src="${qrDataUrl}" width="80" height="80" />
 </div>
 ${problemsHtml}
+<div class="leaf">🌿 Bring this back to earn your next Leaf. 交回这张卡就能获得下一片叶子。</div>
 </body></html>`
+}
+
+/**
+ * Model output lands in an HTML document, so it is escaped. Not a security
+ * boundary so much as a correctness one: a problem legitimately containing
+ * `5 < 8` should print that, not silently open a tag and eat the rest.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 // ─── v0 hardcoded worksheet ───────────────────────────────────────────────────

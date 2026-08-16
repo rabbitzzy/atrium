@@ -182,6 +182,9 @@ importers:
 
   packages/worksheet-print:
     dependencies:
+      '@atrium/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@hono/node-server':
         specifier: ^1.12.0
         version: 1.19.14(hono@4.12.16)
@@ -216,6 +219,9 @@ importers:
       typescript:
         specifier: ^5.5.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.0.5
+        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@22.19.17)
 
   tools:
     dependencies:

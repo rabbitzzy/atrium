@@ -27,9 +27,9 @@
  */
 
 import type { FC } from 'react'
-import type { GeminiSchema } from './gemini'
-import type { PaperId } from './paper'
-import type { Student } from './student'
+import type { GeminiSchema } from './gemini.js'
+import type { PaperId } from './paper.js'
+import type { Student } from './student.js'
 
 /**
  * Who a capture is for.
