@@ -22,7 +22,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { CaptureAppServer, CaptureResponse, Student } from '@atrium/schema'
 import { atrium } from './_lib/db'
 import { storeCapture } from './_lib/storage'
-import { runPipeline } from './_lib/pipelines'
+import { runPipeline, runRecord } from './_lib/pipelines'
 import { APP_IDS, appById } from './_lib/registry'
 import { openSse } from './_lib/sse'
 
@@ -30,6 +30,8 @@ interface CaptureBody {
   imageBase64?: string
   mimeType?: string
   studentId?: string
+  /** `tasks.id`, read off the Card's QR by the client (BHCS-37). */
+  taskId?: string
   studentName?: string
   /** Unknown, not `number`: it arrives over the wire and most rows have none. */
   studentGrade?: unknown
@@ -95,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (image.length === 0) return res.status(400).json({ error: 'Empty image' })
 
   const student: Student = { id: studentId, name: studentName, grade: usableGrade(body.studentGrade) }
-  const args: IngestArgs = { app, image, mimeType, student, crop: body.crop }
+  const args: IngestArgs = { app, image, mimeType, student, crop: body.crop, ...(body.taskId ? { taskId: body.taskId } : {}) }
 
   // Every rejection above is a bad request with nothing stored, so it is a
   // status code. Past this point the response has begun and failures are
@@ -132,6 +134,13 @@ interface IngestArgs {
    * reassembling it one line before the pipeline call.
    */
   student: Student
+  /**
+   * `tasks.id`, read off the Card's QR by the client. Travels beside the
+   * student for the same reason the student does: both are part of the
+   * `CaptureContext` the app is handed, and neither says anything about what
+   * is on the paper.
+   */
+  taskId?: string
   crop: unknown
 }
 
@@ -141,7 +150,7 @@ interface IngestArgs {
  * either way.
  */
 async function ingest(
-  { app, image, mimeType, student, crop }: IngestArgs,
+  { app, image, mimeType, student, taskId, crop }: IngestArgs,
   watch?: {
     onStored: (stored: Pick<CaptureResponse, 'captureId' | 'fileUrl' | 'storageBackend'>) => void
     onPartial: (partial: unknown) => void
@@ -185,7 +194,8 @@ async function ingest(
 
   // 3. Interpret. Which model call this is, if any, is the app's business —
   //    including whether knowing who the student is changes how it asks.
-  const outcome = await runPipeline(app, image, mimeType, { student }, watch?.onPartial)
+  const ctx = taskId ? { student, taskId } : { student }
+  const outcome = await runPipeline(app, image, mimeType, ctx, watch?.onPartial)
 
   // 4. Record the result. If this update fails the image and row still
   //    exist, so the capture is replayable from the 'pending' index.
@@ -209,6 +219,13 @@ async function ingest(
     .eq('id', captureId)
 
   if (updateError) throw new Error(`Update failed: ${updateError.message}`)
+
+  // 5. Let the app act on it. Only now, because the hook is keyed on
+  //    `captureId` for idempotency and that only means something once the row
+  //    is durable. Never throws — see `runRecord`.
+  if (outcome.status === 'ok') {
+    await runRecord(app, { captureId, data: outcome.data, refined: outcome.refined, context: ctx })
+  }
 
   return {
     captureId,

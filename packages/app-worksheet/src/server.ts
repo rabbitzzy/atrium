@@ -5,8 +5,9 @@
  * the kiosk's existing Debrief renderer works against either path unchanged.
  */
 
-import type { CaptureAppServer, CaptureContext, GeminiSchema } from '@atrium/schema'
+import type { CaptureAppServer, CaptureContext, GeminiSchema, RecordArgs } from '@atrium/schema'
 import { readingLevelBrief } from './reading-level'
+import { isRecordable, toObservations, type GradedQuestion } from './attempts'
 
 const WORKSHEET_SCHEMA: GeminiSchema = {
   type: 'OBJECT',
@@ -89,6 +90,84 @@ thing. Burying it under a compliment costs them the one sentence they needed.`
  */
 const worksheetPrompt = (ctx: CaptureContext) => `${WORKSHEET_PROMPT}\n\n${readingLevelBrief(ctx)}`
 
+const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+
+/** What the grader returns, as far as recording an attempt is concerned. */
+interface WorksheetEvaluation {
+  questions?: GradedQuestion[]
+  overall_quality?: string
+  summary_en?: string
+  summary_zh?: string
+  next_focus?: string
+}
+
+/**
+ * The last edge of the flywheel (BHCS-31).
+ *
+ * A graded page becomes movement on the Blueprint. Everything on both sides of
+ * this has worked for a while: the pipeline reads a worksheet and streams a
+ * Debrief, and the skill graph can update mastery and plan what comes next.
+ * Nothing connected them, so a student could turn in fifty Cards and their
+ * Floor plan would not move by a point.
+ *
+ * Three reasons to decline, all of them silent by design — the child has their
+ * Debrief and the page is stored either way:
+ *
+ * - **No Card code.** The page was not one of ours, or the QR did not read.
+ *   Without a task there is no way to know which Rooms it was about, and
+ *   guessing from the questions would attach work to skills nobody chose.
+ * - **Nothing gradeable.** The known failure in the roadmap is this pipeline
+ *   confidently grading a child's drawing as five imaginary questions. If that
+ *   reaches here, recording it would move mastery on Rooms never worked.
+ * - **The task names no Rooms.** A Card from before Cards targeted Rooms.
+ */
+async function recordAttempt({ captureId, data, context }: RecordArgs): Promise<void> {
+  if (!context.taskId) return
+
+  const evaluation = data as WorksheetEvaluation
+  const observations = toObservations(evaluation.questions ?? [])
+  if (!isRecordable(observations)) return
+
+  const taskRes = await fetch(`${SKILL_GRAPH_URL}/tasks/${encodeURIComponent(context.taskId)}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!taskRes.ok) throw new Error(`could not read task ${context.taskId}: ${taskRes.status}`)
+  const task = (await taskRes.json()) as { kcs?: { id: string }[] }
+  const kcIds = (task.kcs ?? []).map((k) => k.id)
+  if (!kcIds.length) return
+
+  const res = await fetch(
+    `${SKILL_GRAPH_URL}/students/${encodeURIComponent(context.student.id)}/attempt`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kcIds,
+        // `captureId` is the idempotency key: a child re-scanning the same page
+        // because they could not tell whether it worked writes nothing new.
+        captureId,
+        taskId: context.taskId,
+        // The sequence, not a verdict. See `attempts.ts` for why.
+        questions: observations,
+        aiEvalJson: evaluation as Record<string, unknown>,
+        ...(evaluation.overall_quality && evaluation.summary_en && evaluation.summary_zh
+          ? {
+              debrief: {
+                overallQuality: evaluation.overall_quality,
+                questions: evaluation.questions ?? [],
+                summaryEn: evaluation.summary_en,
+                summaryZh: evaluation.summary_zh,
+              },
+            }
+          : {}),
+      }),
+    },
+  )
+  if (!res.ok) {
+    throw new Error(`attempt rejected for ${context.student.id}: ${res.status} ${await res.text()}`)
+  }
+}
+
 export const worksheetServer: CaptureAppServer = {
   id: 'worksheet',
   extract: {
@@ -106,4 +185,5 @@ export const worksheetServer: CaptureAppServer = {
      */
     stream: true,
   },
+  record: recordAttempt,
 }

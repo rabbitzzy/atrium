@@ -109,7 +109,28 @@ router.get('/:id/sessions', async (c) => {
 
 const RecordAttemptSchema = z.object({
   kcIds: z.array(z.string()).min(1),
-  correct: z.boolean(),
+  /**
+   * A whole-Card verdict. Mutually exclusive with `questions` — supply one.
+   * Kept because a teacher entering a result by hand has one verdict and no
+   * question numbers.
+   */
+  correct: z.boolean().optional(),
+  /**
+   * The sequence (BHCS-31). Four right then one wrong is a child who slipped
+   * at the end; one wrong then four right is a child who worked out what was
+   * being asked, and both average to 4/5. BKT consumes a sequence, so it is
+   * given one.
+   */
+  questions: z
+    .array(
+      z.object({
+        number: z.number().int().positive(),
+        correct: z.boolean(),
+        confidence: z.number().gt(0).lte(1).optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
   /**
    * How far to believe this grade, 0 exclusive to 1. Absent means full
    * confidence, which is every caller today: nothing emits a confidence yet.
@@ -151,6 +172,24 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
   const db = getSupabase()
   const weight = body.confidence ?? 1
   const kcIds = [...new Set(body.kcIds)]
+
+  // One shape downstream, whichever came in. A whole-Card verdict is a
+  // one-question sequence with no question number, which is exactly what the
+  // ledger's two partial unique indexes distinguish.
+  const observations: Array<{ number: number | null; correct: boolean; weight: number }> =
+    body.questions?.length
+      ? body.questions.map((q) => ({
+          number: q.number,
+          correct: q.correct,
+          weight: (q.confidence ?? 1) * weight,
+        }))
+      : body.correct !== undefined
+        ? [{ number: null, correct: body.correct, weight }]
+        : []
+
+  if (!observations.length) {
+    return c.json({ error: 'supply either correct or a non-empty questions array' }, 400)
+  }
 
   // ── The Rooms being attempted ──────────────────────────────
   const { data: kcs, error: kcError } = await db
@@ -268,26 +307,43 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       pG: kc.bkt_p_g as number,
     }
 
-    const raw = bktUpdateWeighted(before, body.correct, params, weight)
-    const after = applySessionFloor(raw, visitStart.get(kcId) ?? before)
+    // Walk the sequence. Each question moves the number from where the last
+    // one left it, and the Visit floor is applied at every step so a long bad
+    // Card cannot walk a Room down further than one Visit is allowed to.
+    const floorAnchor = visitStart.get(kcId) ?? before
+    let running = before
+    let floored = false
+    const ledgerRows: Record<string, unknown>[] = []
 
-    // Ledger first: this insert is the idempotency barrier.
-    const ledger: Record<string, unknown> = {
-      student_id: studentId,
-      kc_id: kcId,
-      session_id: sessionId,
-      session_task_id: sessionTaskId,
-      correct: body.correct,
-      weight,
-      mastery_before: before,
-      mastery_after: after,
+    for (const obs of observations) {
+      const raw = bktUpdateWeighted(running, obs.correct, params, obs.weight)
+      const next = applySessionFloor(raw, floorAnchor)
+      if (next !== raw) floored = true
+
+      const row: Record<string, unknown> = {
+        student_id: studentId,
+        kc_id: kcId,
+        session_id: sessionId,
+        session_task_id: sessionTaskId,
+        correct: obs.correct,
+        weight: obs.weight,
+        mastery_before: running,
+        mastery_after: next,
+      }
+      if (body.captureId) row['capture_id'] = body.captureId
+      if (obs.number !== null) row['question_number'] = obs.number
+      ledgerRows.push(row)
+      running = next
     }
-    if (body.captureId) ledger['capture_id'] = body.captureId
+    const after = running
 
-    const { error: ledgerError } = await db.from('kc_attempts').insert(ledger)
+    // Ledger first, and all of it at once: the insert is the idempotency
+    // barrier, and a partial write would leave a Card half-recorded with no
+    // way to tell which half.
+    const { error: ledgerError } = await db.from('kc_attempts').insert(ledgerRows)
     if (ledgerError) {
-      // 23505: another request wrote this exact (capture, Room) first. That is
-      // the double-scan case winning the race, not a failure.
+      // 23505: this capture's rows are already there. That is the double-scan
+      // case, not a failure.
       if (ledgerError.code === '23505') {
         replayedNow.push(kcId)
         continue
@@ -295,8 +351,8 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       return c.json({ error: ledgerError.message }, 500)
     }
 
-    const attempts = (prior?.attempts ?? 0) + 1
-    const evidence = (prior?.evidence ?? 0) + weight
+    const attempts = (prior?.attempts ?? 0) + observations.length
+    const evidence = (prior?.evidence ?? 0) + observations.reduce((sum, o) => sum + o.weight, 0)
     const { error: stateError } = await db.from('student_kc_state').upsert(
       {
         student_id: studentId,
@@ -316,9 +372,11 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       before,
       after,
       delta: after - before,
-      // True when the Visit bound clipped the fall — worth surfacing, because
-      // it means the raw evidence said something harsher than the number shows.
-      floored: after !== raw,
+      // True when the Visit bound clipped the fall at any point in the
+      // sequence — worth surfacing, because it means the raw evidence said
+      // something harsher than the number shows.
+      floored,
+      questions: observations.length,
       attempts,
       evidence,
       band: confidenceBand(after, evidence),

@@ -7,7 +7,7 @@
  * with which prompt, is the app's business and lives in its own package.
  */
 
-import type { CaptureAppServer, CaptureContext, SystemPrompt } from '@atrium/schema'
+import type { CaptureAppServer, CaptureContext, RecordArgs, SystemPrompt } from '@atrium/schema'
 import { visionJson, visionJsonStream } from './gemini'
 
 export interface PipelineOutcome {
@@ -107,5 +107,35 @@ export async function runPipeline(
     // outcome by far, so the capture stays 'ok' and the failure is recorded
     // beside the data rather than instead of it.
     return { ...extracted, refinedStatus: 'failed', refinedError: (err as Error).message }
+  }
+}
+
+/**
+ * Let an app act on a finished capture, after the row exists (BHCS-31).
+ *
+ * Separate from `runPipeline` because it runs at a different moment: the
+ * pipeline produces what gets written, this happens once the writing is done
+ * and there is a `captureId` to be idempotent against.
+ *
+ * Never throws. The image is stored, the row is written and the Debrief is on
+ * screen by the time this runs; letting an unreachable downstream service turn
+ * a successful capture into a failed one would trade a Floor plan that updates
+ * late for a child's work that disappears. The failure is logged and the
+ * capture stands.
+ *
+ * The platform still knows nothing about what any app does in here.
+ */
+export async function runRecord(
+  app: CaptureAppServer,
+  args: RecordArgs,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!app.record) return { ok: true }
+  try {
+    await app.record(args)
+    return { ok: true }
+  } catch (err) {
+    const error = (err as Error).message
+    console.error(`[capture] ${app.id} record hook failed for ${args.captureId}: ${error}`)
+    return { ok: false, error }
   }
 }

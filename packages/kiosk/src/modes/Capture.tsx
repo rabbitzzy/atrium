@@ -28,6 +28,7 @@ import CameraStage from '../platform/CameraStage'
 import { SpokenDebrief } from '../platform/ReadAloud'
 import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
+import { readCardIdentity } from '../lib/card-scan'
 import FloorPlan from './FloorPlan'
 
 interface Props {
@@ -394,6 +395,18 @@ export default function Capture({ student, onSwitchStudent }: Props) {
     // was sent — not a thumbnail of what we hope was sent.
     setShot(`data:${frame.mimeType};base64,${frame.base64}`)
 
+    /*
+     * Read the Card code off the page we just cropped, before it is uploaded
+     * (BHCS-37, BHCS-31). The canvas is right here and already holds the
+     * upright, cropped page — decoding server-side would mean shipping an
+     * image decoder to do work the browser has already done.
+     *
+     * Never blocks. Most pages under this camera are not Cards, and a page
+     * without a code is stored and graded exactly as before; all a task id
+     * adds is that the grade can move the child's Floor plan afterwards.
+     */
+    const card = readCardIdentity(canvas)
+
     // Deliberately no stopCamera() here. Tearing the stream down after every
     // shot was half the focus bug: reopening it restarts the camera's autofocus
     // sweep, so every capture after the first was taken during a rack rather
@@ -419,6 +432,8 @@ export default function Capture({ student, onSwitchStudent }: Props) {
           // checked who this is, so nothing should be assumed about them.
           studentGrade: student.grade ?? null,
           kind: target.id,
+          // Present only when this page carried a readable Card code.
+          ...(card.found ? { taskId: card.identity.taskId } : {}),
           crop: {
             paper: targetPaper,
             orientation: orientationFor(pageUp),
