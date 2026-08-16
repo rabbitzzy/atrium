@@ -28,6 +28,7 @@ export type {
   CaptureExtract,
   CaptureTheme,
   Partially,
+  RecordArgs,
   SpokenScript,
   SystemPrompt,
   WaitLine,

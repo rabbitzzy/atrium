@@ -46,6 +46,17 @@ import type { Student } from './student.js'
  */
 export interface CaptureContext {
   student: Student
+
+  /**
+   * `tasks.id`, when the page carried a Card code the station could read
+   * (BHCS-37). Absent for anything else put under the camera — a drawing, a
+   * scoresheet, a worksheet printed before Cards existed.
+   *
+   * As platform-level as `student`, and for the same reason: which task a
+   * capture is of says nothing about what the task contains. What it turns out
+   * to be about stays the app's business.
+   */
+  taskId?: string
 }
 
 /**
@@ -116,6 +127,35 @@ export interface CaptureAppServer<Raw = unknown, Result = Raw> {
    * `ocr_json`, never in place of it.
    */
   refine?(raw: Raw): Promise<Result>
+
+  /**
+   * Do something with the finished result, after the row is written.
+   *
+   * The generic post-extraction hook BHCS-31 asks for. `refine` transforms an
+   * extraction into something stored beside it; this one is for effects that
+   * leave the capture pipeline entirely — the worksheet app posting a graded
+   * page to the skill graph so a child's mastery moves is the first, and the
+   * platform must not learn that mastery exists any more than it has learned
+   * that chess does.
+   *
+   * Deliberately returns nothing. Whatever happens here cannot change the
+   * capture, and a failure must not fail it: the page is already stored, the
+   * Debrief is already on screen, and losing either because a downstream
+   * service was unreachable would be a far worse outcome than a Floor plan
+   * that updates late.
+   */
+  record?(args: RecordArgs<Result>): Promise<void>
+}
+
+/** What an app is handed when its `record` hook fires. */
+export interface RecordArgs<Result = unknown> {
+  /** `captures.id` — stable, and the idempotency key for anything downstream. */
+  captureId: string
+  /** What the model read, and what the app made of it if it declared `refine`. */
+  data: Result
+  refined: unknown | null
+  /** Who the capture was for, and which task it was of. */
+  context: CaptureContext
 }
 
 /**
