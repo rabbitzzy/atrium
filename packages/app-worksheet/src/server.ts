@@ -223,6 +223,9 @@ async function recordAttempt({ captureId, data, context }: RecordArgs): Promise<
         // because they could not tell whether it worked writes nothing new.
         captureId,
         taskId: context.taskId,
+        // Carried so the review queue can put the scan beside the grade
+        // (BHCS-43); a verdict without its basis is a rubber stamp.
+        scanCaptureId: captureId,
         // The sequence, not a verdict. See `attempts.ts` for why.
         questions: observations,
         aiEvalJson: evaluation as Record<string, unknown>,
