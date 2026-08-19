@@ -44,7 +44,6 @@ packages/
   chess-rules/    Helper. Handwritten move text resolved against the board
   skill-graph/    KC graph + BKT student state service (:3001)
   worksheet-print/ Card PDF generator with QR header (:3002)
-  evaluator/      Submission evaluator — Gemini multimodal grading (:3003)
 
 product/          Decision layer: user stories, PRD, tech spec
   00-index.md     ← start here for product context
@@ -108,12 +107,11 @@ as a redirect URI, and the Drive API enabled on that project.
 Browse what's been captured — image, crop metadata, focus scores, raw OCR JSON —
 at `localhost:5173/#admin`.
 
-Python evaluator:
+Printing needs a CUPS queue on the same network and `ATRIUM_PRINTER` set to its
+name (`lpstat -p` lists them). The PDF path also needs Puppeteer's Chrome, which
+must match the workspace's puppeteer version:
 ```bash
-cd packages/evaluator
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn src.main:app --reload --port 3003
+pnpm -F @atrium/worksheet-print exec puppeteer browsers install chrome
 ```
 
 All services read the repo-root `.env`; see `.env.example` for the full list.
@@ -124,9 +122,9 @@ All services read the repo-root `.env`; see `.env.example` for the full list.
 - **Student model:** pyBKT (Bayesian Knowledge Tracing); upgrade to DKT/pyKT after ≥10K logs
 - **Voice:** Deferred — not a v1 requirement
 - **Frontend:** React + Vite + TypeScript, inline styles, DM Sans font
-- **Backend:** Node/TypeScript (skill-graph, worksheet), Python FastAPI (evaluator)
+- **Backend:** Node/TypeScript throughout — `skill-graph`, `worksheet-print`, `print-agent`
 - **Database:** Supabase Postgres
-- **PDF rendering:** HTML → Playwright headless Chromium → PDF
+- **PDF rendering:** HTML → Puppeteer headless Chromium → PDF → CUPS
 
 ## Integration with BHCS portal
 
