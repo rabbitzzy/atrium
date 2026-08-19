@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ASSUMED_PASSED,
   FAILURE_LIMIT,
+  isAssumedPassed,
   isMastered,
   MASTERY_GATE,
   MIN_EVIDENCE_FOR_MASTERY,
@@ -172,6 +174,65 @@ describe('planNext', () => {
     expect(plan.reasonEn).toContain('nothing has tested it yet')
     expect(plan.candidates[0]!.factors[1]!.detail).toContain('still a prior')
   })
+
+describe('a placement opening doors without becoming mastery', () => {
+  // The bug this fixes: a child placed at Chinese grade 4 still started at the
+  // grade-1 entry Room, because a placement seeds priors and unlocking needed
+  // mastery. Placement moved every number and opened nothing.
+  it('unlocks past a Room the teacher placed the child above', () => {
+    const plan = planNext([
+      room('foundation', { masteryProb: 0.85, attempts: 0, evidence: 0, difficulty: 1 }),
+      room('their-level', { masteryProb: 0.45, attempts: 0, evidence: 0, difficulty: 3, prerequisiteIds: ['foundation'] }),
+    ])
+    expect(plan.candidates.map((c) => c.kcId)).toContain('their-level')
+  })
+
+  it('still refuses to call it mastered', () => {
+    const placed = room('foundation', { masteryProb: 0.85, attempts: 0, evidence: 0 })
+    expect(isAssumedPassed(placed)).toBe(true)
+    expect(isMastered(placed)).toBe(false)
+    // So the foundation is still offered — just no longer as the only option.
+    const plan = planNext([placed, room('next', { masteryProb: 0.45, prerequisiteIds: ['foundation'] })])
+    expect(plan.candidates.map((c) => c.kcId)).toContain('foundation')
+  })
+
+  // The guard that keeps this from unlocking on real, partial work.
+  it('does not unlock past a Room the child is halfway through', () => {
+    const plan = planNext([
+      room('halfway', { masteryProb: 0.75, attempts: 4, evidence: 4 }),
+      room('after', { masteryProb: 0.3, prerequisiteIds: ['halfway'] }),
+    ])
+    expect(isAssumedPassed({ ...room('halfway'), masteryProb: 0.75, attempts: 4 })).toBe(false)
+    expect(plan.candidates.map((c) => c.kcId)).not.toContain('after')
+  })
+
+  it('does not unlock past a Room placed at the child’s own level', () => {
+    // 0.45 is "right at their level" — not a claim they are past it.
+    expect(isAssumedPassed(room('at-level', { masteryProb: 0.45, attempts: 0 }))).toBe(false)
+    expect(ASSUMED_PASSED).toBeGreaterThan(0.45)
+  })
+
+  it('ranks an assumed prerequisite below a demonstrated one', () => {
+    const shown = planNext([
+      done('shown'),
+      room('after-shown', { masteryProb: 0.4, prerequisiteIds: ['shown'] }),
+    ]).candidates[0]!
+    const guessed = planNext([
+      room('guessed', { masteryProb: 0.85, attempts: 0 }),
+      room('after-guessed', { masteryProb: 0.4, prerequisiteIds: ['guessed'] }),
+    ]).candidates.find((c) => c.kcId === 'after-guessed')!
+    expect(shown.factors[0]!.value).toBeGreaterThan(guessed.factors[0]!.value)
+  })
+
+  it('says in the reason when a door was opened by placement, not by work', () => {
+    const plan = planNext([
+      room('foundation', { masteryProb: 0.85, attempts: 0 }),
+      room('their-level', { masteryProb: 0.45, prerequisiteIds: ['foundation'] }),
+    ])
+    const c = plan.candidates.find((x) => x.kcId === 'their-level')!
+    expect(c.factors[0]!.detail).toContain('assumed from placement')
+  })
+})
 
   it('prefers the Room that is nearly finished over one barely begun', () => {
     const plan = planNext([

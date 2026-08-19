@@ -479,6 +479,45 @@ const PlacementSchema = z.object({
 })
 
 /**
+ * GET /students/:id/placement — what this child is currently placed at.
+ *
+ * The form could always be re-run; it could not show what it was re-running
+ * *from*, so a teacher revising a placement was editing blind and re-typing
+ * three numbers from memory. Worse, the defaults looked like current values —
+ * which is how a placement of "Chinese grade 1" survived a teacher who meant
+ * to say 2.
+ *
+ * Placements are append-only, so this is the most recent claim rather than the
+ * only one; the history stays intact underneath.
+ */
+router.get('/:id/placement', async (c) => {
+  const studentId = c.req.param('id')
+  const db = getSupabase()
+
+  const { data, error } = await db
+    .from('student_placements')
+    .select('id, placed_by, claim_json, note, seeded_kc_ids, created_at')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) return c.json({ error: error.message }, 500)
+  if (!data) return c.json({ studentId, placement: null })
+
+  return c.json({
+    studentId,
+    placement: {
+      placedBy: data.placed_by as string,
+      levels: (data.claim_json as { levels?: Record<string, number> }).levels ?? {},
+      rooms: (data.claim_json as { rooms?: Record<string, string> }).rooms ?? {},
+      note: (data.note as string | null) ?? '',
+      seededCount: ((data.seeded_kc_ids as string[] | null) ?? []).length,
+      at: data.created_at as string,
+    },
+  })
+})
+
+/**
  * POST /students/:id/placement — a teacher says where this child starts.
  *
  * Flywheel step 1, and the cheap answer to the cold start: BKT needs five to

@@ -111,6 +111,16 @@ export const MIN_EVIDENCE_FOR_MASTERY = 3
  */
 export const FAILURE_LIMIT = 4
 
+/**
+ * A prior at or above this means a teacher placed the child above this Room.
+ *
+ * It comes from `derivePlacement`: 0.70 is "a grade below their level" and 0.85
+ * is "well below", while a Room at their own level lands on 0.45. So this
+ * threshold is exactly the line between "they should already have this" and
+ * "this is roughly where they are".
+ */
+export const ASSUMED_PASSED = 0.7
+
 /** Ranking weights. They sum to 1 so a score reads as a fraction. */
 const W_READINESS = 0.45
 const W_PROXIMITY = 0.35
@@ -121,6 +131,30 @@ export function isMastered(room: FloorPlanRoom): boolean {
 }
 
 /**
+ * A Room a teacher has placed the student past, which nobody has checked.
+ *
+ * This exists because two rules written in different tickets combined into
+ * something neither intended. BHCS-32 says a placement seeds priors and never
+ * evidence, so a teacher's estimate can never be read as mastery. This file
+ * says a Room unlocks when a prerequisite is mastered. Together they meant a
+ * freshly placed student had *nothing* unlocked except the three entry Rooms —
+ * so a child placed at Chinese grade 4 still started at 声母与韵母, and the
+ * placement moved every number while opening no doors.
+ *
+ * That is the "babyish is its own kind of shaming" failure BHCS-32 fixed in the
+ * ranking, returning through the unlocking.
+ *
+ * `attempts === 0` is the whole guard. A *measured* 0.7 is a child halfway
+ * through a Room and must not unlock what comes after it; an *unmeasured* 0.7
+ * is a teacher saying they are past it. Only the second opens a door, and it
+ * still cannot clear the mastery gate — nothing here makes a guess into
+ * evidence, it only stops a guess being treated as ignorance.
+ */
+export function isAssumedPassed(room: FloorPlanRoom): boolean {
+  return room.attempts === 0 && room.masteryProb >= ASSUMED_PASSED
+}
+
+/**
  * Decide the Landing.
  *
  * `rooms` must be the assessable leaves only — headings are never assigned, and
@@ -128,6 +162,7 @@ export function isMastered(room: FloorPlanRoom): boolean {
  */
 export function planNext(rooms: FloorPlanRoom[]): Plan {
   const mastered = new Set(rooms.filter(isMastered).map((r) => r.kcId))
+  const assumed = new Set(rooms.filter(isAssumedPassed).map((r) => r.kcId))
   const untouched = rooms.every((r) => r.attempts === 0)
 
   const unmastered = rooms.filter((r) => !mastered.has(r.kcId))
@@ -147,7 +182,9 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
   // would also make the scaffolding tiebreak below vacuous, since every
   // survivor would score identically.
   const unlocked = unmastered.filter(
-    (r) => r.prerequisiteIds.length === 0 || r.prerequisiteIds.some((id) => mastered.has(id)),
+    (r) =>
+      r.prerequisiteIds.length === 0 ||
+      r.prerequisiteIds.some((id) => mastered.has(id) || assumed.has(id)),
   )
 
   const needsTeacher = unlocked
@@ -172,7 +209,7 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
   }
 
   const candidates = eligible
-    .map((room) => score(room, mastered))
+    .map((room) => score(room, mastered, assumed))
     .sort(
       (a, b) =>
         b.score - a.score ||
@@ -195,12 +232,17 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
   }
 }
 
-function score(room: FloorPlanRoom, mastered: Set<string>): PlanCandidate {
+function score(room: FloorPlanRoom, mastered: Set<string>, assumed: Set<string>): PlanCandidate {
   const total = room.prerequisiteIds.length
   const done = room.prerequisiteIds.filter((id) => mastered.has(id))
+  // Counted at half, because a teacher saying a child is past something is
+  // worth having and is not worth as much as their having shown it. Scoring an
+  // assumed prerequisite at zero would unlock a Room and then bury it, which is
+  // the same as not unlocking it.
+  const guessed = room.prerequisiteIds.filter((id) => !mastered.has(id) && assumed.has(id))
   // An entry Room is fully scaffolded by definition — there is nothing it is
   // waiting on. Scoring it 0 would bury exactly the Rooms a new student needs.
-  const readiness = total === 0 ? 1 : done.length / total
+  const readiness = total === 0 ? 1 : (done.length + guessed.length * 0.5) / total
 
   // What the band was reaching for, as a preference rather than a gate — but
   // which of two questions that is depends on whether the number means
@@ -239,7 +281,7 @@ function score(room: FloorPlanRoom, mastered: Set<string>): PlanCandidate {
       detail:
         total === 0
           ? 'nothing has to come first'
-          : `${done.length} of ${total}${done.length ? ` — ${done.join(', ')}` : ''}`,
+          : `${done.length} of ${total} mastered${guessed.length ? `, ${guessed.length} assumed from placement` : ''}${done.length ? ` — ${done.join(', ')}` : ''}`,
       value: readiness,
       weight: W_READINESS,
     },

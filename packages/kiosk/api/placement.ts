@@ -23,8 +23,17 @@ const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
+
+  // GET reads the current placement so the form can show what it is changing
+  // rather than presenting its own defaults as if they were current values.
+  if (req.method === 'GET') {
+    const id = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''
+    if (!id) return res.status(400).json({ error: 'studentId is required' })
+    return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(id)}/placement`)
+  }
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST')
+    res.setHeader('Allow', 'GET, POST')
     return res.status(405).json({ error: 'method_not_allowed' })
   }
 

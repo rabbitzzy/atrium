@@ -61,6 +61,12 @@ export default function Placement() {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [current, setCurrent] = useState<{
+    placedBy: string
+    levels: Record<string, number>
+    note: string
+    at: string
+  } | null>(null)
 
   useEffect(() => {
     fetch('/api/students')
@@ -68,6 +74,33 @@ export default function Placement() {
       .then((d: { students?: Student[] }) => setRoster(d.students ?? []))
       .catch(() => setError('Could not load the roster.'))
   }, [])
+
+  /*
+   * Load what this student is placed at now, and fill the form with it.
+   *
+   * Until this existed the form showed its own defaults whichever student you
+   * picked, and defaults are indistinguishable from current values — which is
+   * exactly how a placement said "Chinese grade 1" for a child whose teacher
+   * meant to say 2.
+   */
+  useEffect(() => {
+    setResult(null)
+    setCurrent(null)
+    if (!studentId) return
+    const token = localStorage.getItem('atrium.adminToken')
+    fetch(`/api/placement?studentId=${encodeURIComponent(studentId)}`, {
+      headers: token ? { 'x-admin-token': token } : {},
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { placement: typeof current }) => {
+        if (!d.placement) return
+        setCurrent(d.placement)
+        setLevels({ ...levels, ...d.placement.levels })
+        setNote(d.placement.note ?? '')
+      })
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId])
 
   async function submit() {
     if (!studentId || !placedBy) return
@@ -99,6 +132,26 @@ export default function Placement() {
         rest. Rooms they have already worked are never overwritten, so this is safe to redo when
         your view of them changes.
       </p>
+
+      {current && (
+        <div style={currentBox}>
+          Placed <b>{new Date(current.at).toLocaleDateString()}</b> by{' '}
+          <b>{current.placedBy}</b> —{' '}
+          {Object.entries(current.levels)
+            .map(([root, g]) => `${root} grade ${g}`)
+            .join(', ')}
+          {current.note && <> · “{current.note}”</>}
+          <div style={{ marginTop: 4, color: '#86838f' }}>
+            The form below is filled in with that. Change what has moved and place them again —
+            placements are kept, so this is a revision rather than an overwrite.
+          </div>
+        </div>
+      )}
+      {studentId && !current && (
+        <div style={{ ...currentBox, background: '#fff8e8', borderColor: '#e8c98a' }}>
+          Never placed. The numbers below are starting suggestions, not current values.
+        </div>
+      )}
 
       <div style={grid}>
         <label style={label}>
@@ -155,7 +208,7 @@ export default function Placement() {
       </label>
 
       <button type="button" style={submitBtn} onClick={submit} disabled={busy || !studentId || !placedBy}>
-        {busy ? 'Placing…' : 'Place this student'}
+        {busy ? 'Placing…' : current ? 'Update this placement' : 'Place this student'}
       </button>
 
       {error && <p style={{ color: '#b4432f', fontSize: 14 }}>{error}</p>}
@@ -197,6 +250,17 @@ export default function Placement() {
       )}
     </div>
   )
+}
+
+const currentBox: React.CSSProperties = {
+  margin: '0 0 16px',
+  padding: '12px 16px',
+  borderRadius: 10,
+  border: '1px solid #d0cdc8',
+  background: '#f2f0ec',
+  fontSize: 13.5,
+  lineHeight: 1.5,
+  maxWidth: 620,
 }
 
 const grid: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 14 }
