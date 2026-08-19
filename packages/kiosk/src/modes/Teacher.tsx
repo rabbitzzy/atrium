@@ -45,6 +45,7 @@ import { useEffect, useState } from 'react'
 import { qc } from '@atrium/app-worksheet/tiers'
 import Placement from './Placement'
 import StudentState from './StudentState'
+import Settings from './Settings'
 
 interface Question {
   number?: number
@@ -68,7 +69,7 @@ interface QueueItem {
   questions: Question[]
 }
 
-type Tab = 'queue' | 'student' | 'placement'
+type Tab = 'queue' | 'student' | 'placement' | 'settings'
 
 export default function Teacher() {
   const [tab, setTab] = useState<Tab>('queue')
@@ -99,7 +100,13 @@ export default function Teacher() {
     <div style={page}>
       <header style={{ marginBottom: 20 }}>
         <h1 style={{ margin: '0 0 12px', fontSize: 24 }}>
-          {tab === 'queue' ? 'Review queue' : tab === 'student' ? 'How is this student doing?' : 'Place a student'}
+          {tab === 'queue'
+            ? 'Review queue'
+            : tab === 'student'
+              ? 'How is this student doing?'
+              : tab === 'placement'
+                ? 'Place a student'
+                : 'Settings'}
         </h1>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button type="button" style={tabBtn(tab === 'queue')} onClick={() => setTab('queue')}>
@@ -111,6 +118,9 @@ export default function Teacher() {
           <button type="button" style={tabBtn(tab === 'placement')} onClick={() => setTab('placement')}>
             Place a student
           </button>
+          <button type="button" style={tabBtn(tab === 'settings')} onClick={() => setTab('settings')}>
+            Settings
+          </button>
         </div>
         {tab === 'queue' && (
           <p style={{ margin: 0, fontSize: 14, color: '#6b6a75' }}>
@@ -121,6 +131,7 @@ export default function Teacher() {
 
       {tab === 'student' && <StudentState />}
       {tab === 'placement' && <Placement />}
+      {tab === 'settings' && <Settings />}
 
       {tab === 'queue' && error && <p style={{ color: '#b4432f' }}>{error}</p>}
       {tab === 'queue' && !items && !error && <p style={{ color: '#6b6a75' }}>Loading…</p>}

@@ -40,12 +40,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'method_not_allowed' })
   }
 
-  const body = (req.body ?? {}) as { studentId?: string; hold?: boolean }
+  const body = (req.body ?? {}) as {
+    studentId?: string
+    hold?: boolean
+    subject?: string
+    /** Simulate mode: preview on screen, spend a Leaf, use no paper. */
+    preview?: boolean
+  }
   const studentId = body.studentId
   if (!studentId) return res.status(400).json({ error: 'studentId is required' })
 
-  // 1. The tray, before the Leaf.
-  try {
+  // 1. The tray, before the Leaf — skipped in simulate mode, which has no tray.
+  if (!body.preview) try {
     const health = await fetch(`${PRINT_AGENT_URL}/health`)
     const h = (await health.json()) as { ready?: boolean; printer?: string | null }
     if (!h.ready) {
@@ -68,7 +74,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const gen = await fetch(`${WORKSHEET_URL}/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ studentId, taskId }),
+      body: JSON.stringify({
+        studentId,
+        taskId,
+        ...(body.subject ? { subject: body.subject } : {}),
+        ...(body.preview ? { preview: true } : {}),
+      }),
     })
 
     if (gen.status === 402) {
@@ -84,6 +95,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!gen.ok) {
       const b = await gen.text()
       return res.status(502).json({ error: 'generate_failed', detail: b.slice(0, 200), spentLeaf: false })
+    }
+
+    if (body.preview) {
+      // No printer, no PDF, no paper. The Leaf was still spent, because the
+      // point of a rehearsal is to exercise the economy rather than sidestep it.
+      const out = (await gen.json()) as { html: string; rooms: string[]; leavesLeft: number }
+      return res.status(200).json({
+        taskId,
+        rooms: out.rooms,
+        html: out.html,
+        leavesLeft: out.leavesLeft,
+        spentLeaf: true,
+        simulated: true,
+      })
     }
 
     leavesLeft = Number(gen.headers.get('x-atrium-leaves') ?? '0')

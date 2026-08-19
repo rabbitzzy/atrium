@@ -294,3 +294,49 @@ describe('a placement opening doors without becoming mastery', () => {
     }
   })
 })
+
+describe('pointing a Visit at a subject', () => {
+  const across = () => [
+    done('math/base-ten/place-value-hundreds'),
+    room('math/ops/multiplication-facts', { masteryProb: 0.45, prerequisiteIds: ['math/base-ten/place-value-hundreds'] }),
+    room('lang/zh/pinyin/tones', { masteryProb: 0.45 }),
+    room('lang/en/phonics/cvc-words', { masteryProb: 0.45 }),
+  ]
+
+  it('assigns only from the subject asked for', () => {
+    expect(planNext(across(), 'math').targetKcId).toBe('math/ops/multiplication-facts')
+    expect(planNext(across(), 'lang/zh').targetKcId).toBe('lang/zh/pinyin/tones')
+    expect(planNext(across(), 'lang/en').targetKcId).toBe('lang/en/phonics/cvc-words')
+  })
+
+  // lang/en must not swallow lang/zh, which is the whole reason the focus is an
+  // id root rather than the `subject` column those two share.
+  it('keeps the two languages apart', () => {
+    const plan = planNext(across(), 'lang/en')
+    expect(plan.candidates.map((c) => c.kcId).every((id) => id.startsWith('lang/en'))).toBe(true)
+  })
+
+  it('still counts work from other subjects as known', () => {
+    // place-value is mastered and lives outside the focus; multiplication-facts
+    // is only unlocked because of it. Filtering the graph before traversing
+    // would have hidden that and left maths with nothing.
+    expect(planNext(across(), 'math').candidates.map((c) => c.kcId)).toContain(
+      'math/ops/multiplication-facts',
+    )
+  })
+
+  it('says so rather than silently switching subject', () => {
+    const plan = planNext(
+      [done('math/base-ten/place-value-hundreds'), room('lang/zh/pinyin/tones', { masteryProb: 0.45 })],
+      'math',
+    )
+    expect(plan.targetKcId).toBeNull()
+    expect(plan.outcome).toBe('complete')
+    expect(plan.reasonEn).toMatch(/another subject/i)
+    expect(plan.reasonZh).toMatch(/换一个科目/)
+  })
+
+  it('plans across everything when no subject is asked for', () => {
+    expect(planNext(across()).candidates.length).toBeGreaterThan(1)
+  })
+})

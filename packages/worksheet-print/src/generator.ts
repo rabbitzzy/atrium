@@ -39,7 +39,17 @@ export interface CardRequest {
  * the render, so a generation failure throws while nothing has been committed.
  * Everything downstream of here spends something.
  */
-export async function generateCard(req: CardRequest): Promise<{ pdf: Buffer; balance: number }> {
+export async function generateCard(
+  req: CardRequest,
+  /**
+   * Simulate mode (no paper). Everything up to the render is identical — the
+   * planner picks, the problems are written, the task is registered, the Leaf
+   * is spent — and then the Card comes back as HTML for a screen instead of
+   * bytes for a tray. A rehearsal that skipped generation would be rehearsing
+   * a different system.
+   */
+  asHtml = false,
+): Promise<{ pdf: Buffer; html: string; balance: number }> {
   const rooms = await fetchRooms(req.kcIds)
   const problems = await generateProblems(rooms)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
@@ -71,6 +81,11 @@ export async function generateCard(req: CardRequest): Promise<{ pdf: Buffer; bal
     qrDataUrl,
   })
 
+  if (asHtml) {
+    const balance = await spendLeaf(req.studentId)
+    return { pdf: Buffer.alloc(0), html, balance }
+  }
+
   const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
   let pdf: Buffer
   try {
@@ -86,7 +101,7 @@ export async function generateCard(req: CardRequest): Promise<{ pdf: Buffer; bal
   // the balance went to zero between the check at the top and this moment,
   // which is the only ordering that cannot print free paper (BHCS-38).
   const balance = await spendLeaf(req.studentId)
-  return { pdf, balance }
+  return { pdf, html, balance }
 }
 
 /**

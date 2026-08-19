@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { getSupabase } from '../db/client.js'
-import { planNext, type FloorPlanRoom } from '../models/frontier.js'
+import { planNext, type FloorPlanRoom, type SubjectFocus } from '../models/frontier.js'
 
 const router = new Hono()
 
@@ -86,10 +86,18 @@ router.get('/next/:studentId', async (c) => {
     }
   })
 
-  const plan = planNext(rooms)
+  // `?subject=math` points the Visit somewhere (BHCS-91). Anything else is
+  // ignored rather than erroring: an unknown subject should not stop a child
+  // getting work.
+  const asked = c.req.query('subject')
+  const focus: SubjectFocus | undefined =
+    asked === 'math' || asked === 'lang/en' || asked === 'lang/zh' ? asked : undefined
+
+  const plan = planNext(rooms, focus)
 
   return c.json({
     studentId,
+    subject: focus ?? null,
     outcome: plan.outcome,
     targetKcId: plan.targetKcId,
     reason: { en: plan.reasonEn, zh: plan.reasonZh },

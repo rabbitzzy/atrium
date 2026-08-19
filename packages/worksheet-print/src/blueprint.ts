@@ -78,8 +78,12 @@ export interface Landing {
  * planner said "ask a teacher" is exactly the paper the Leaf economy exists to
  * stop.
  */
-export async function fetchLanding(studentId: string): Promise<Landing | null> {
-  const plan = (await getJson(`/tasks/next/${encodeURIComponent(studentId)}`)) as {
+export async function fetchLanding(
+  studentId: string,
+  subject?: string,
+): Promise<Landing | null> {
+  const query = subject ? `?subject=${encodeURIComponent(subject)}` : ''
+  const plan = (await getJson(`/tasks/next/${encodeURIComponent(studentId)}${query}`)) as {
     targetKcId: string | null
     outcome: string
     reason?: { en: string; zh: string }

@@ -160,7 +160,25 @@ export function isAssumedPassed(room: FloorPlanRoom): boolean {
  * `rooms` must be the assessable leaves only — headings are never assigned, and
  * 004 guarantees prerequisite edges never touch one.
  */
-export function planNext(rooms: FloorPlanRoom[]): Plan {
+/**
+ * Which subject a Visit is pointed at, if any.
+ *
+ * The id root rather than the `subject` column, because English and Chinese
+ * share that column and are the two the child most needs to tell apart.
+ */
+export type SubjectFocus = 'math' | 'lang/en' | 'lang/zh'
+
+export function planNext(rooms: FloorPlanRoom[], focus?: SubjectFocus): Plan {
+  /*
+   * A focus narrows what may be *assigned*, never what counts as known.
+   *
+   * Mastery and unlocking are computed over the whole Blueprint first, because
+   * a crossover edge means a Chinese Room can be what opens a maths word
+   * problem — filtering the graph before traversing it would sever exactly the
+   * links the cross-over curriculum exists to create.
+   */
+  const inFocus = (kcId: string) => !focus || kcId === focus || kcId.startsWith(focus + '/')
+
   const mastered = new Set(rooms.filter(isMastered).map((r) => r.kcId))
   const assumed = new Set(rooms.filter(isAssumedPassed).map((r) => r.kcId))
   const untouched = rooms.every((r) => r.attempts === 0)
@@ -212,8 +230,30 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
    * should get one anyway — better a Card that is too easy than no Card.
    */
   const worthAssigning = reachable.filter((r) => !assumed.has(r.kcId))
-  const eligible = worthAssigning.length > 0 ? worthAssigning : reachable
+  const preferred = worthAssigning.length > 0 ? worthAssigning : reachable
   const onlyAssumed = worthAssigning.length === 0 && reachable.length > 0
+
+  // Nothing left in the subject they chose is a real answer and gets said, not
+  // silently swapped for another subject. A child told "you have finished
+  // everything in maths for now" has learned something; one handed a Chinese
+  // Card without explanation has not.
+  const focused = preferred.filter((r) => inFocus(r.kcId))
+  const eligible = focused
+  if (focus && focused.length === 0) {
+    const elsewhere = preferred.length > 0
+    return {
+      outcome: 'complete',
+      targetKcId: null,
+      candidates: [],
+      needsTeacher,
+      reasonEn: elsewhere
+        ? 'Nothing left here for now — everything in this subject is either finished or waiting on something else. Try another subject.'
+        : 'Nothing left here for now.',
+      reasonZh: elsewhere
+        ? '这个科目暂时没有新内容了——要么已经完成，要么在等别的技能。换一个科目试试。'
+        : '这个科目暂时没有新内容了。',
+    }
+  }
 
   if (!eligible.length) {
     const stuck = needsTeacher.length > 0
