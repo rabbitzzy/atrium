@@ -232,10 +232,11 @@ Design notes:
 | 1 | Student auth at kiosk | QR badge · Face ID · PIN | QR badge |
 | 2 | Worksheet: one task/page vs many | One (easier scan) · Many (more efficient) | One |
 | 3 | PDF renderer | Playwright · Puppeteer | Playwright |
-| 4 | Review queue sync vs async | Sync (teacher signs off before student sees) · Async | Async with flag |
+| 4 | Review queue sync vs async | Sync (teacher signs off before student sees) · Async | **Decided: async, provisional until reviewed** (BHCS-42) |
 | 5 | Voice persona name | Docent · unnamed | Docent |
 | 6 | Read-aloud in a shared room | Headphones · low-volume near-field speaker | **Open — hardware.** Software side is settled: student-initiated only, never autoplay (BHCS-15) |
 | 7 | TTS provider | Browser `speechSynthesis` · ElevenLabs / OpenAI TTS | Browser, for v1. No key, no cache, instant replay |
+| 8 | Where the teacher dashboard lives | BHCS portal · Atrium · Atrium behind portal auth | **Decided: in Atrium, one deploy, entry point in the portal** (BHCS-42) |
 
 ## Service ports
 
@@ -245,3 +246,64 @@ Design notes:
 | skill-graph | 3001 |
 | worksheet | 3002 |
 | print-agent | 3003 |
+
+
+## Decision 8 — the teacher dashboard lives in Atrium (BHCS-42, 2026-08-18)
+
+One deploy: a route in the kiosk app, beside the `#admin` viewer that already
+works this way. The *entry point* is a link in the BHCS portal's nav, so
+teachers still have one door and are not asked to remember a second address.
+
+**Why not the portal**, which is where teachers already log in. The review queue
+has to show the scan beside the grade, and the scan is Atrium's — stored in
+Drive or locally, served by `/api/capture-file`, indexed by a `captures` row the
+portal has never heard of. Rendering that queue from another repository turns
+every iteration into an image-serving and API-versioning problem, during exactly
+the weeks when the queue's design is least settled. `CLAUDE.md`'s rule against
+replicating portal surfaces is about the parent inbox, notifications and the
+gradebook; a working view over Atrium's own audit trail is not one of those.
+
+**One deploy rather than two** because the kiosk is already a Vercel app with
+serverless functions and a hash-routed admin surface. A teacher view is a route,
+not a deployment, and standing up a second one doubles the configuration to keep
+correct for a pilot with a handful of staff.
+
+⚠️ The consequence to design for: this puts a teacher surface in the bundle
+that runs on a shared machine in a room full of children. `#admin` already has
+that property and is gated by `ADMIN_TOKEN`. Portal-issued auth has to replace
+that token before any real student data is behind it — a shared secret typed at
+a kiosk is not an access control.
+
+## Decision 4 — review is asynchronous, and grades are provisional (BHCS-42)
+
+A student gets their Debrief immediately, marked as not yet reviewed; a teacher
+revises later and the revision is what parents and the Blueprint keep.
+
+Synchronous review — a teacher signing off before the child sees anything —
+protects trust and destroys the product. The premise is a station a child uses
+unsupervised, and a grade that waits for an adult who is not in the room is a
+child standing at a printer with nothing to do. It also cannot degrade: with no
+teacher on site, sync means no feedback at all.
+
+Writing down *why* matters more than the choice, because this is the decision
+that will be relitigated the first time a bad grade reaches a parent. When that
+happens, the answer is not to add a sign-off gate. It is that async was chosen
+knowing bad grades would happen, and three things bound the damage — all of
+which landed after this decision was first framed:
+
+- **A fabricated grade cannot reach a child.** BHCS-22 asks the model whether
+  the page is a worksheet before it grades, and a page that fails is refused on
+  screen, in speech, and in the record hook. The original argument for sync was
+  largely this failure mode.
+- **A bad grade cannot rewrite a child's history.** BHCS-29 bounds how far one
+  Visit may push a Room down, so a misread page costs a fraction of a skill
+  rather than a term of work, and BHCS-30 will not call anything mastered on
+  fewer than three observations.
+- **Every grade is already reversible with a trail.** The attempt ledger stores
+  mastery before and after as applied, so an override can be reasoned about
+  rather than guessed at (BHCS-44).
+
+What async still needs, and what BHCS-43 should carry: the provisional marker
+must be visible to parents too, not only to teachers. A parent who reads a
+Debrief has no way to know whether a human has seen it, and finding out later
+that nobody had is worse than being told up front.
