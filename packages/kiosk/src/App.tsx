@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Student } from '@atrium/schema'
 import Admin from './modes/Admin'
+import Teacher from './modes/Teacher'
 import CheckIn from './modes/CheckIn'
 import Capture from './modes/Capture'
 import StillHere from './platform/StillHere'
@@ -19,22 +20,29 @@ export type KioskMode = 'checkin' | 'capture'
  * Hash-based, so the data viewer needs no router dependency and no SPA
  * rewrite rules — #admin works identically on the dev server and on Vercel.
  */
-function useIsAdminRoute(): boolean {
-  const [isAdmin, setIsAdmin] = useState(() => window.location.hash.startsWith('#admin'))
+function useHashRoute(prefix: string): boolean {
+  const [match, setMatch] = useState(() => window.location.hash.startsWith(prefix))
   useEffect(() => {
-    const sync = () => setIsAdmin(window.location.hash.startsWith('#admin'))
+    const sync = () => setMatch(window.location.hash.startsWith(prefix))
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
-  }, [])
-  return isAdmin
+  }, [prefix])
+  return match
 }
 
 export default function App() {
-  const isAdmin = useIsAdminRoute()
+  const isAdmin = useHashRoute('#admin')
+  /*
+   * The teacher surface lives here rather than in the BHCS portal (BHCS-42):
+   * the review queue needs the scan beside the grade, and the scan is Atrium's.
+   * Same hash-route trick as #admin, so no router and no SPA rewrite rules.
+   */
+  const isTeacher = useHashRoute('#teacher')
   const [mode, setMode] = useState<KioskMode>('checkin')
   const [student, setStudent] = useState<Student | null>(null)
 
   if (isAdmin) return <Admin />
+  if (isTeacher) return <Teacher />
 
   function handleCheckIn(s: Student) {
     setStudent(s)

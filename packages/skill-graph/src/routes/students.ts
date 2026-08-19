@@ -143,6 +143,8 @@ const RecordAttemptSchema = z.object({
   /** The Card, once Cards target Rooms (BHCS-35). */
   taskId: z.string().uuid().optional(),
   scanUrl: z.string().optional(),
+  /** `captures.id` for the image behind this grade (BHCS-43). */
+  scanCaptureId: z.string().uuid().optional(),
   aiEvalJson: z.record(z.unknown()).optional(),
   debrief: z
     .object({
@@ -264,6 +266,7 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
   }
   if (body.taskId) sessionTaskRow['task_id'] = body.taskId
   if (body.scanUrl) sessionTaskRow['scan_url'] = body.scanUrl
+  if (body.scanCaptureId) sessionTaskRow['capture_id'] = body.scanCaptureId
   if (body.aiEvalJson) sessionTaskRow['ai_eval_json'] = body.aiEvalJson
 
   const { data: sessionTask, error: stError } = await db
