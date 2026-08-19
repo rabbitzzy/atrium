@@ -346,3 +346,37 @@ capability. Steps 6–7 are the features that motivated the split.
   end-to-end. `@vercel/node` traces and compiles TypeScript from linked
   workspace packages too, but nothing here has been deployed, so the first
   deploy should be treated as the real test of that.
+
+## The print agent, and why it is a fourth deployable (BHCS-67)
+
+Flywheel step 3 ends with paper coming out of a machine, and the layering has
+something to say about where that happens.
+
+The constraint is physical. The printer is on the school LAN; the kiosk browser
+is on the school LAN; whatever generates the PDF is a serverless function,
+which is not, and cannot reach a printer at `192.168.x.y` however it is
+configured. So "CUPS straight from the server" — the tidiest option on paper —
+has no route to the tray. Something already on the LAN has to hand the job
+over, and `packages/print-agent` is the smallest thing that can.
+
+**Why not managed ChromeOS printing**, which needs no new service at all: it
+works, and it cannot report. `window.print()` returns `undefined` when the page
+printed, when the printer was out of paper, when it was unplugged, and when the
+job was cancelled at the device. A station built on it can never learn that a
+Leaf was spent for nothing, which leaves BHCS-38's refund permanently
+unreachable and a teacher noticing as the only recovery.
+
+A CUPS queue can be asked. Measured against a real printer: a job in a working
+queue reads `active`; disable the queue — the out-of-paper, jammed and offline
+case — and the same job reads `stuck`, `failed: true`, while new submissions are
+refused with 503 *before* a Leaf is spent. That is the difference between a
+refund path that can fire and one that is decoration.
+
+One honest limit, stated rather than papered over: a job **cancelled at the
+device** leaves the queue alongside one that printed perfectly, and CUPS's cheap
+interfaces cannot separate them. The detectable failure is the stuck queue,
+which is the one the Leaf economy actually needs.
+
+The agent is not a layer. It is a deployable like `skill-graph` and
+`worksheet-print`, addressed by HTTP, and it knows nothing about Cards, Leaves
+or mastery — it takes a PDF and returns a job id.
