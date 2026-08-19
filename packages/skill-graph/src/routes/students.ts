@@ -588,6 +588,36 @@ router.get('/:id/leaves', async (c) => {
 })
 
 /**
+ * POST /students/:id/leaves/earn — the Leaf for turning a Card in (BHCS-39).
+ *
+ * At any quality tier. A `not-yet` submission earns exactly what a `mastered`
+ * one does, because the Leaf pays for attempting and returning; correctness is
+ * answered in the Debrief and in what gets assigned next. Tie the credit to the
+ * score and the child struggling most gets the least paper.
+ *
+ * Keyed on the Card rather than the capture, so the six-year-old who is not
+ * sure the first scan worked and lays the page down four more times earns once.
+ */
+router.post('/:id/leaves/earn', zValidator('json', z.object({
+  taskId: z.string().uuid(),
+  sessionId: z.string().uuid().optional(),
+})), async (c) => {
+  const studentId = c.req.param('id')
+  const body = c.req.valid('json')
+  const db = getSupabase()
+
+  const { data, error } = await db.rpc('earn_leaf', {
+    p_student_id: studentId,
+    p_task_id: body.taskId,
+    ...(body.sessionId ? { p_session_id: body.sessionId } : {}),
+  })
+  if (error) return c.json({ error: error.message }, 500)
+
+  const out = data as { balance: number; granted: number; capped: boolean }
+  return c.json({ studentId, ...out })
+})
+
+/**
  * POST /students/:id/leaves/spend — take one Leaf for a Card (BHCS-38).
  *
  * 402 is the whole ticket: a student at zero cannot print, by any route. The

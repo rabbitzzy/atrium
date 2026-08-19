@@ -29,6 +29,7 @@ import { SpokenDebrief } from '../platform/ReadAloud'
 import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
 import { readCardIdentity } from '../lib/card-scan'
+import LeafCount from '../platform/LeafCount'
 import FloorPlan from './FloorPlan'
 
 interface Props {
@@ -127,6 +128,9 @@ export default function Capture({ student, onSwitchStudent }: Props) {
    * not unmount the camera. They sit over the live view, and it survives.
    */
   const [showingProgress, setShowingProgress] = useState(false)
+  /* Bumped when this Visit does something that changes the balance, so the
+     count updates now rather than at the next poll. */
+  const [leafRefresh, setLeafRefresh] = useState(0)
   /**
    * Whether the stream has painted a frame — not whether it has been opened.
    *
@@ -413,6 +417,9 @@ export default function Capture({ student, onSwitchStudent }: Props) {
     // than after one. The stream stays live for the whole visit and only stops
     // when this screen unmounts.
     setPhase('uploading')
+    // A submitted Card earns a Leaf (BHCS-39), and the child should watch the
+    // number go up rather than find out about it two screens later.
+    setTimeout(() => setLeafRefresh((n) => n + 1), 1200)
 
     // Warn, never block: a blurry capture still gets stored and OCR'd, because
     // a threshold that refuses real work is worse than a soft image.
@@ -568,6 +575,9 @@ export default function Capture({ student, onSwitchStudent }: Props) {
               <button onClick={() => setShowingProgress(true)} style={workBtn}>🌱 What I know 我会的</button>
             </>
           )}
+          {/* Same slot as the name chip (BHCS-18): the two facts a child needs
+              about themselves during a Visit, in one place on every screen. */}
+          <LeafCount student={student} refreshKey={leafRefresh} />
           <WhoChip student={student} onSwitch={onSwitchStudent} />
         </div>
       </header>
