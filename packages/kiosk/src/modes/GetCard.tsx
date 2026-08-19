@@ -29,11 +29,31 @@
 import { useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
+import SimulateCard from './SimulateCard'
+
+/**
+ * The three doors, as a child names them.
+ *
+ * Choosing the subject is choosing a door, never a difficulty — the Blueprint
+ * still picks which Room is behind it, so a child cannot opt into easy work.
+ * That division is what makes the choice safe to give them.
+ *
+ * There is no "any" option. The planner's own pick is the default and is what
+ * the plain button does; these are the override, which is a different thing
+ * from a menu with four items.
+ */
+const SUBJECTS = [
+  { id: 'math', en: 'Math', zh: '数学', emoji: '🔢' },
+  { id: 'lang/zh', en: 'Chinese', zh: '中文', emoji: '🀄' },
+  { id: 'lang/en', en: 'English', zh: '英语', emoji: '📖' },
+] as const
 
 type Outcome =
   | { kind: 'idle' }
   | { kind: 'working' }
   | { kind: 'printed'; leavesLeft: number }
+  | { kind: 'preview'; taskId: string; html: string; leavesLeft: number }
+  | { kind: 'nothing-in-subject'; subject: string }
   | { kind: 'no-leaves'; balance: number }
   | { kind: 'nothing-to-do' }
   | { kind: 'no-paper' }
@@ -47,14 +67,22 @@ export default function GetCard({
   onPrinted?: () => void
 }) {
   const [state, setState] = useState<Outcome>({ kind: 'idle' })
+  const [choosing, setChoosing] = useState(false)
+  // Set from the admin surface. Off means paper, which is the real thing.
+  const simulate = localStorage.getItem('atrium.simulate') === 'on'
 
-  async function ask() {
+  async function ask(subject?: string) {
+    setChoosing(false)
     setState({ kind: 'working' })
     try {
       const res = await fetch('/api/card', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ studentId: student.id }),
+        body: JSON.stringify({
+          studentId: student.id,
+          ...(subject ? { subject } : {}),
+          ...(simulate ? { preview: true } : {}),
+        }),
       })
       const body = (await res.json()) as {
         error?: string
@@ -64,12 +92,25 @@ export default function GetCard({
       }
 
       if (res.ok) {
-        setState({ kind: 'printed', leavesLeft: body.leavesLeft ?? 0 })
         onPrinted?.()
+        const b = body as unknown as { html?: string; taskId?: string }
+        if (b.html && b.taskId) {
+          return setState({
+            kind: 'preview',
+            taskId: b.taskId,
+            html: b.html,
+            leavesLeft: body.leavesLeft ?? 0,
+          })
+        }
+        setState({ kind: 'printed', leavesLeft: body.leavesLeft ?? 0 })
         return
       }
       if (res.status === 402) return setState({ kind: 'no-leaves', balance: body.balance ?? 0 })
-      if (res.status === 409) return setState({ kind: 'nothing-to-do' })
+      if (res.status === 409) {
+        return subject
+          ? setState({ kind: 'nothing-in-subject', subject })
+          : setState({ kind: 'nothing-to-do' })
+      }
       // Everything else splits on the only question that matters to the child:
       // did this cost them something?
       setState(body.spentLeaf ? { kind: 'spent-and-lost' } : { kind: 'no-paper' })
@@ -78,15 +119,58 @@ export default function GetCard({
     }
   }
 
+  if (state.kind === 'preview') {
+    return (
+      <SimulateCard
+        student={student}
+        taskId={state.taskId}
+        html={state.html}
+        leavesLeft={state.leavesLeft}
+        onDone={() => {
+          onPrinted?.()
+          setState({ kind: 'idle' })
+        }}
+      />
+    )
+  }
+
   if (state.kind === 'idle' || state.kind === 'working') {
     return (
-      <button type="button" style={primary} onClick={ask} disabled={state.kind === 'working'}>
-        {state.kind === 'working' ? (
-          <>Getting your Card… <span style={sub}>正在准备…</span></>
-        ) : (
-          <>🌿 Get my Card <span style={sub}>拿一张练习卡</span></>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+        <button type="button" style={primary} onClick={() => ask()} disabled={state.kind === 'working'}>
+          {state.kind === 'working' ? (
+            <>Getting your Card… <span style={sub}>正在准备…</span></>
+          ) : (
+            <>🌿 Get my Card <span style={sub}>拿一张练习卡</span></>
+          )}
+        </button>
+
+        {state.kind === 'idle' && !choosing && (
+          <button type="button" style={link} onClick={() => setChoosing(true)}>
+            or pick a subject <span style={{ opacity: 0.7 }}>选一个科目</span>
+          </button>
         )}
-      </button>
+
+        {/* The override, not a menu. The plain button above is still the
+            recommendation, and this is how a child says "not today". */}
+        {state.kind === 'idle' && choosing && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {SUBJECTS.map((s) => (
+              <button key={s.id} type="button" style={subjectBtn} onClick={() => ask(s.id)}>
+                <span style={{ fontSize: 22 }}>{s.emoji}</span>
+                <span>{s.en}</span>
+                <span style={{ fontSize: 13, opacity: 0.75 }}>{s.zh}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {simulate && (
+          <span style={{ fontSize: 12, color: '#8a7a45' }}>
+            simulate mode — no paper will be used
+          </span>
+        )}
+      </div>
     )
   }
 
@@ -95,6 +179,24 @@ export default function GetCard({
       OK
     </button>
   )
+
+  if (state.kind === 'nothing-in-subject') {
+    const s = SUBJECTS.find((x) => x.id === state.subject)
+    return (
+      <Panel tone="#4a7c59">
+        <b style={{ fontSize: 19 }}>
+          You&rsquo;ve finished everything in {s?.en ?? 'that subject'} for now.
+        </b>
+        <span style={zh}>「{s?.zh ?? ''}」暂时没有新内容了。</span>
+        <span style={{ fontSize: 14, color: '#5a5a6a' }}>
+          Try another subject, or press Get my Card and I&rsquo;ll choose.
+          <br />
+          换一个科目，或者按「拿一张练习卡」，我来挑。
+        </span>
+        {again}
+      </Panel>
+    )
+  }
 
   if (state.kind === 'printed') {
     const line = spentLine(state.leavesLeft)
@@ -212,6 +314,18 @@ const panel: React.CSSProperties = {
   fontFamily: 'DM Sans, sans-serif',
   color: '#1a1a2e',
   maxWidth: 520,
+}
+const link: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontFamily: 'DM Sans, sans-serif', fontSize: 14.5, color: '#4a7c59',
+  textDecoration: 'underline', padding: 4,
+}
+const subjectBtn: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+  padding: '12px 20px', minWidth: 96,
+  fontFamily: 'DM Sans, sans-serif', fontSize: 16, fontWeight: 700,
+  borderRadius: 14, border: '2px solid #d0cdc8', background: '#fff',
+  color: '#1a1a2e', cursor: 'pointer',
 }
 const sub: React.CSSProperties = { fontWeight: 600, opacity: 0.8, fontSize: 17 }
 const zh: React.CSSProperties = { fontSize: 16, color: '#3a3a4a' }

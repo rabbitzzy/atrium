@@ -94,6 +94,138 @@ router.get('/:id/radar', async (c) => {
 })
 
 /**
+ * DELETE /students/:id/simulated — throw away a rehearsal.
+ *
+ * Simulate mode writes through the real code path, which is what makes it worth
+ * having and also means its rows sit in the same tables as a child's actual
+ * work. Being able to remove them cleanly is what keeps the pilot's data worth
+ * reading: an evaluation of whether this system helps Arthur cannot be mixed
+ * with an adult pressing buttons to check that a screen renders.
+ *
+ * Only ever deletes rows marked simulated. Real work is not reachable from
+ * here, deliberately — there is no flag to widen this, because the one thing
+ * worse than losing a rehearsal is losing a term of a child's history.
+ */
+router.delete('/:id/simulated', async (c) => {
+  const studentId = c.req.param('id')
+  const db = getSupabase()
+
+  const { data: removed, error } = await db
+    .from('kc_attempts')
+    .delete()
+    .eq('student_id', studentId)
+    .eq('simulated', true)
+    .select('id')
+  if (error) return c.json({ error: error.message }, 500)
+
+  const { error: eventError } = await db
+    .from('print_events')
+    .delete()
+    .eq('student_id', studentId)
+    .eq('simulated', true)
+  if (eventError) return c.json({ error: eventError.message }, 500)
+
+  /*
+   * The Floor plan is a running total, so removing attempts does not undo their
+   * effect — it has to be recomputed. Any Room left with no real attempts goes
+   * back to having no measured state at all, which is the honest result: the
+   * radar shows a prior again and `seen` returns to false.
+   */
+  const { data: remaining } = await db
+    .from('kc_attempts')
+    .select('kc_id, mastery_after, weight')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: true })
+
+  const byKc = new Map<string, { mastery: number; attempts: number; evidence: number }>()
+  for (const r of remaining ?? []) {
+    const kc = r.kc_id as string
+    const acc = byKc.get(kc) ?? { mastery: 0, attempts: 0, evidence: 0 }
+    acc.mastery = r.mastery_after as number
+    acc.attempts += 1
+    acc.evidence += r.weight as number
+    byKc.set(kc, acc)
+  }
+
+  const { data: states } = await db
+    .from('student_kc_state')
+    .select('kc_id')
+    .eq('student_id', studentId)
+
+  for (const row of states ?? []) {
+    const kc = row.kc_id as string
+    const acc = byKc.get(kc)
+    if (acc) {
+      await db
+        .from('student_kc_state')
+        .update({ mastery_prob: acc.mastery, attempts: acc.attempts, evidence: acc.evidence })
+        .eq('student_id', studentId)
+        .eq('kc_id', kc)
+    } else {
+      // No real attempts left, so nothing measured survives on this Room.
+      await db.from('student_kc_state').delete().eq('student_id', studentId).eq('kc_id', kc)
+    }
+  }
+
+  /*
+   * Put the placement back.
+   *
+   * Deleting the state row is right for the *measurement* and wrong for
+   * everything else: a placement also writes those rows, and clearing a
+   * rehearsal must not throw away a teacher's estimate of where the child
+   * started. Without this the radar fell back to the Blueprint's own prior —
+   * 0.30 where a teacher had said 0.45 — and the placement was silently gone.
+   *
+   * Re-derived from the stored claim rather than remembered, so it uses the
+   * same code a placement always did, and it only touches Rooms with no
+   * attempts — which is exactly the set just cleared.
+   */
+  const { data: placement } = await db
+    .from('student_placements')
+    .select('claim_json')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let restored = 0
+  if (placement) {
+    const [{ data: leaves }, { data: after }] = await Promise.all([
+      db.from('kcs').select('id, label_en, subject, difficulty, bkt_p_l0').eq('depth', 2),
+      db.from('student_kc_state').select('kc_id, attempts').eq('student_id', studentId),
+    ])
+    const attemptsByKc = new Map((after ?? []).map((r) => [r.kc_id as string, r.attempts as number]))
+    const result = derivePlacement(
+      placement.claim_json as { levels: Record<string, number> },
+      (leaves ?? []).map((kc) => ({
+        kcId: kc.id as string,
+        labelEn: kc.label_en as string,
+        subject: kc.subject as string,
+        difficulty: kc.difficulty as number,
+        bktPL0: kc.bkt_p_l0 as number,
+        attempts: attemptsByKc.get(kc.id as string) ?? 0,
+      })),
+    )
+    if (result.seeded.length) {
+      await db.from('student_kc_state').upsert(
+        result.seeded.map((r) => ({
+          student_id: studentId,
+          kc_id: r.kcId,
+          mastery_prob: r.masteryProb,
+          attempts: 0,
+          evidence: 0,
+          updated_at: new Date().toISOString(),
+        })),
+        { onConflict: 'student_id,kc_id' },
+      )
+      restored = result.seeded.length
+    }
+  }
+
+  return c.json({ studentId, removedAttempts: (removed ?? []).length, placementRestored: restored })
+})
+
+/**
  * GET /students/:id/attempts — what actually moved, and when.
  *
  * The radar says where a child is; this says how they got there. A teacher
@@ -194,6 +326,8 @@ const RecordAttemptSchema = z.object({
   /** `captures.id` for the image behind this grade (BHCS-43). */
   scanCaptureId: z.string().uuid().optional(),
   aiEvalJson: z.record(z.unknown()).optional(),
+  /** Marked by hand in simulate mode rather than worked on paper. */
+  simulated: z.boolean().optional(),
   debrief: z
     .object({
       overallQuality: z.enum(['mastered', 'shaky', 'needs-help', 'not-yet']),
@@ -383,6 +517,7 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       }
       if (body.captureId) row['capture_id'] = body.captureId
       if (obs.number !== null) row['question_number'] = obs.number
+      if (body.simulated) row['simulated'] = true
       ledgerRows.push(row)
       running = next
     }

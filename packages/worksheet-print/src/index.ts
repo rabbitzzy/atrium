@@ -74,6 +74,10 @@ const GenerateSchema = z.object({
    */
   kcIds: z.array(z.string()).min(1).optional(),
   difficulty: z.number().min(1).max(5).optional(),
+  /** Point the Visit at one subject (BHCS-91). */
+  subject: z.enum(['math', 'lang/en', 'lang/zh']).optional(),
+  /** Simulate mode: return the Card as HTML for a screen, not a PDF for a tray. */
+  preview: z.boolean().optional(),
 })
 
 /**
@@ -104,7 +108,7 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
     let reason: { en: string; zh: string } | undefined
 
     if (!kcIds) {
-      const landing = await fetchLanding(body.studentId)
+      const landing = await fetchLanding(body.studentId, body.subject)
       // The planner declining to name a Room is a real answer, not an error to
       // route around. Printing something arbitrary because it said "ask a
       // teacher" is exactly the paper the Leaf economy exists to prevent.
@@ -122,12 +126,18 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
       reason = { en: landing.reasonEn, zh: landing.reasonZh }
     }
 
-    const { pdf, balance: remaining } = await generateCard({
+    const { pdf, html, balance: remaining } = await generateCard({
       studentId: body.studentId,
       taskId: body.taskId,
       kcIds,
       ...(body.difficulty !== undefined ? { difficulty: body.difficulty } : {}),
-    })
+    }, body.preview === true)
+
+    if (body.preview) {
+      // The Card, its questions and what it cost — everything the simulate
+      // screen needs to render a page and collect marks against it.
+      return c.json({ taskId: body.taskId, rooms: kcIds, html, leavesLeft: remaining })
+    }
 
     c.header('Content-Type', 'application/pdf')
     c.header('Content-Disposition', `attachment; filename="card-${body.taskId}.pdf"`)
