@@ -1,8 +1,10 @@
 /**
  * Worksheet — server half.
  *
- * Mirrors the EvaluationResult shape the Python evaluator already returns, so
- * the kiosk's existing Debrief renderer works against either path unchanged.
+ * The one worksheet grader (BHCS-23). A second one lived in Python behind a UI
+ * route that no longer existed; its shape is preserved here because rows in
+ * `captures.ocr_json` were written to it and a stored value that changes
+ * meaning is worse than an awkward field name.
  */
 
 import type { CaptureAppServer, CaptureContext, GeminiSchema, RecordArgs } from '@atrium/schema'

@@ -1,3 +1,15 @@
+> **Superseded (BHCS-23).** `packages/evaluator` is deleted and there is no
+> Python in this repo. Worksheet grading lives in `packages/app-worksheet` —
+> its prompt, its schema, its guard against non-worksheets (BHCS-22), and the
+> hook that turns a grade into movement on the Blueprint (BHCS-31). This file
+> is kept for the reasoning behind the rubric and tier design, which carried
+> over; the service it describes does not exist.
+>
+> The one idea worth reviving is the rubric: this grader knew the expected
+> answers for the v0 sheet from a hardcoded string, and since BHCS-37 every
+> Card's questions are stored on its `tasks` row. Grading against what was
+> actually asked is a real improvement and its own ticket.
+
 # Submission Evaluator — Implementation Plan
 
 Package: `packages/evaluator`  

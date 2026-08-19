@@ -8,7 +8,7 @@ A student can walk up to the kiosk, scan their badge, receive a personalized wor
 ### Phase 0 — Local scaffold (this week)
 Goal: repo + services boot; flywheel runs end-to-end in a dev environment with mock data.
 
-- [x] Monorepo structure (`packages/kiosk`, `skill-graph`, `worksheet`, `evaluator`)
+- [x] Monorepo structure (`packages/kiosk`, `skill-graph`, `worksheet-print`, `print-agent`)
 - [x] Seed skill tree schema + 30-KC pilot set
 - [x] BKT core implementation
 - [x] Kiosk React app skeleton (check-in / chat / scan modes)
@@ -244,4 +244,4 @@ Design notes:
 | kiosk (Vite) | 5173 |
 | skill-graph | 3001 |
 | worksheet | 3002 |
-| evaluator | 3003 |
+| print-agent | 3003 |

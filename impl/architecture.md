@@ -7,8 +7,8 @@ Read this before adding a package, a capture kind, or a route.
 
 Steps 1–4 of BHCS-13 have landed: the split described below is the code, not a
 plan, and steps 5 and 7 with it — `chess-rules`, BHCS-11's resolution step, and
-BHCS-10's streamed worksheet evaluation. Step 6 (evaluator consolidation) is
-the last one outstanding.
+BHCS-10's streamed worksheet evaluation. Step 6 (evaluator consolidation) has
+landed too, so the migration order below is complete.
 
 ## The three layers
 
@@ -50,7 +50,6 @@ HTTP rather than imported.
 | `packages/app-doodle` | Capture → store | App |
 | `packages/schema` | Shared types and the capture app contract | Helper |
 | `packages/worksheet-print` | Print/PDF service (Hono :3002, Puppeteer, QR) — *not* the worksheet app | Backend service |
-| `packages/evaluator` | Python FastAPI worksheet grader | Backend service (duplicated, see below) |
 | `packages/skill-graph` | BKT + student state (Hono) | Backend service |
 | `packages/chess-rules` | Handwritten move text resolved against the board | Helper |
 
@@ -63,9 +62,9 @@ to: `src/platform/registry.ts` and `api/_lib/registry.ts`. Everything else —
 `Admin.tsx`, `api/_lib/{db,drive,storage,gemini,bhcs,admin}.ts`, `capture.ts`,
 `captures.ts` — works off `CaptureApp` and never learns what is on the paper.
 
-Still out of place, both scheduled: `packages/evaluator` grades worksheets a
-second time in Python behind `ScanSubmit.tsx`, and the chess validator still
-lives in a different repository (`~/src/chess-karma`).
+One thing is still out of place: the chess validator lives in a different
+repository (`~/src/chess-karma`). The second worksheet grader is gone — see
+step 6.
 
 ## Why this happened when it did: two features were about to collide
 
@@ -206,8 +205,6 @@ packages/
   skill-graph/            Service. BKT + student state.
   worksheet-print/        Service. Renamed from `worksheet` — it prints Cards,
                           it is not the worksheet app.
-  evaluator/              Service. Python worksheet grader, to be deleted —
-                          see below.
 ```
 
 ## Two decisions this forces
