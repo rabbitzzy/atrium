@@ -44,6 +44,7 @@
 import { useEffect, useState } from 'react'
 import { qc } from '@atrium/app-worksheet/tiers'
 import Placement from './Placement'
+import StudentState from './StudentState'
 
 interface Question {
   number?: number
@@ -56,6 +57,8 @@ interface Question {
 interface QueueItem {
   sessionTaskId: string
   studentId: string | null
+  /** Joined from `captures` by the proxy — a UUID is not a child. */
+  studentName?: string | null
   captureId: string | null
   scanUrl: string | null
   submittedAt: string
@@ -65,7 +68,7 @@ interface QueueItem {
   questions: Question[]
 }
 
-type Tab = 'queue' | 'placement'
+type Tab = 'queue' | 'student' | 'placement'
 
 export default function Teacher() {
   const [tab, setTab] = useState<Tab>('queue')
@@ -96,11 +99,14 @@ export default function Teacher() {
     <div style={page}>
       <header style={{ marginBottom: 20 }}>
         <h1 style={{ margin: '0 0 12px', fontSize: 24 }}>
-          {tab === 'queue' ? 'Review queue' : 'Place a student'}
+          {tab === 'queue' ? 'Review queue' : tab === 'student' ? 'How is this student doing?' : 'Place a student'}
         </h1>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button type="button" style={tabBtn(tab === 'queue')} onClick={() => setTab('queue')}>
             Review queue{items ? ` (${items.length})` : ''}
+          </button>
+          <button type="button" style={tabBtn(tab === 'student')} onClick={() => setTab('student')}>
+            A student
           </button>
           <button type="button" style={tabBtn(tab === 'placement')} onClick={() => setTab('placement')}>
             Place a student
@@ -113,6 +119,7 @@ export default function Teacher() {
         )}
       </header>
 
+      {tab === 'student' && <StudentState />}
       {tab === 'placement' && <Placement />}
 
       {tab === 'queue' && error && <p style={{ color: '#b4432f' }}>{error}</p>}
@@ -130,7 +137,9 @@ export default function Teacher() {
               <span style={{ ...pill, background: look.bg, color: look.color }}>
                 {look.label} <span style={{ opacity: 0.7 }}>{look.labelZh}</span>
               </span>
-              <span style={{ fontWeight: 600 }}>{item.studentId ?? 'unknown student'}</span>
+              <span style={{ fontWeight: 600 }}>
+                {item.studentName ?? item.studentId ?? 'unknown student'}
+              </span>
               <span style={{ color: '#86838f', fontSize: 13 }}>
                 {new Date(item.submittedAt).toLocaleString()}
               </span>

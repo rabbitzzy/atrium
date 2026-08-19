@@ -15,6 +15,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { requireAdmin } from './_lib/admin'
 import { relay } from './_lib/relay'
+import { atrium } from './_lib/db'
 
 const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
 
@@ -31,5 +32,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
   }
 
-  return relay(res, `${SKILL_GRAPH_URL}/teacher/queue`, { headers: { accept: 'application/json' } })
+  /*
+   * The join happens here, not in skill-graph.
+   *
+   * A queue row carries a `capture_id`; the image and the child's name live on
+   * the `captures` row it points at, and `captures` belongs to the platform.
+   * skill-graph reaching into it would give the service that owns mastery an
+   * opinion about storage — so the side that owns the table does the lookup,
+   * which is this one.
+   *
+   * Without it the queue renders a UUID where a name should be and no scan at
+   * all, which is most of what a teacher came to look at.
+   */
+  let upstream: Response
+  try {
+    upstream = await fetch(`${SKILL_GRAPH_URL}/teacher/queue`, { headers: { accept: 'application/json' } })
+  } catch {
+    return res.status(503).json({
+      error: 'skill_graph_unreachable',
+      detail: `nothing is listening at ${new URL(SKILL_GRAPH_URL).origin} — is it running?`,
+    })
+  }
+  if (!upstream.ok) {
+    return res.status(upstream.status).json({ error: 'skill_graph_error', detail: await upstream.text() })
+  }
+
+  const queue = (await upstream.json()) as {
+    items: Array<{ captureId: string | null; scanUrl: string | null; studentId: string | null }>
+  }
+
+  const captureIds = queue.items.map((i) => i.captureId).filter((id): id is string => !!id)
+  if (captureIds.length) {
+    const { data } = await atrium()
+      .from('captures')
+      .select('id, storage_url, student_name')
+      .in('id', captureIds)
+    const byId = new Map((data ?? []).map((c) => [c.id as string, c]))
+    for (const item of queue.items) {
+      const cap = item.captureId ? byId.get(item.captureId) : undefined
+      if (!cap) continue
+      item.scanUrl = item.scanUrl ?? (cap.storage_url as string)
+      ;(item as { studentName?: string }).studentName = cap.student_name as string
+    }
+  }
+
+  return res.status(200).json(queue)
 }

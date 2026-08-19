@@ -93,6 +93,54 @@ router.get('/:id/radar', async (c) => {
   })
 })
 
+/**
+ * GET /students/:id/attempts — what actually moved, and when.
+ *
+ * The radar says where a child is; this says how they got there. A teacher
+ * asking "did that Card do anything?" wants the before and after of each
+ * question, not a probability that has already absorbed it.
+ *
+ * Reads the ledger as applied, so a later change to the BKT parameters cannot
+ * rewrite what a teacher was shown.
+ */
+router.get('/:id/attempts', async (c) => {
+  const studentId = c.req.param('id')
+  const db = getSupabase()
+
+  const { data, error } = await db
+    .from('kc_attempts')
+    .select('kc_id, question_number, correct, weight, mastery_before, mastery_after, capture_id, created_at')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+    .limit(60)
+  if (error) return c.json({ error: error.message }, 500)
+
+  const rows = data ?? []
+  const kcIds = [...new Set(rows.map((r) => r.kc_id as string))]
+  const { data: kcs } = kcIds.length
+    ? await db.from('kcs').select('id, label_en, label_zh').in('id', kcIds)
+    : { data: [] }
+  const label = new Map(
+    (kcs ?? []).map((k) => [k.id as string, { en: k.label_en as string, zh: k.label_zh as string }]),
+  )
+
+  return c.json({
+    studentId,
+    attempts: rows.map((r) => ({
+      kcId: r.kc_id as string,
+      labelEn: label.get(r.kc_id as string)?.en ?? (r.kc_id as string),
+      labelZh: label.get(r.kc_id as string)?.zh ?? '',
+      question: r.question_number as number | null,
+      correct: r.correct as boolean,
+      weight: r.weight as number,
+      before: r.mastery_before as number,
+      after: r.mastery_after as number,
+      captureId: r.capture_id as string | null,
+      at: r.created_at as string,
+    })),
+  })
+})
+
 // GET /students/:id/sessions  — recent Visit history
 router.get('/:id/sessions', async (c) => {
   const studentId = c.req.param('id')
