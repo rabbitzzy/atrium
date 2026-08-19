@@ -14,6 +14,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { relay } from './_lib/relay'
 
 const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
 
@@ -21,14 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const studentId = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''
   if (!studentId) return res.status(400).json({ error: 'studentId is required' })
 
-  try {
-    const upstream = await fetch(
-      `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/leaves`,
-      { headers: { accept: 'application/json' } },
-    )
-    if (!upstream.ok) return res.status(502).json({ error: `skill-graph answered ${upstream.status}` })
-    return res.status(200).json(await upstream.json())
-  } catch {
-    return res.status(503).json({ error: 'skill-graph is unreachable' })
-  }
+  return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/leaves`, {
+    headers: { accept: 'application/json' },
+  })
 }
