@@ -182,6 +182,23 @@ async function recordAttempt({ captureId, data, context }: RecordArgs): Promise<
   // worksheet has no attempt to record, however confidently it was graded.
   if (!guard(evaluation).gradeable) return
 
+  /*
+   * The Leaf, before anything else that could fail (BHCS-39).
+   *
+   * The child has submitted: the page is a worksheet and it has a Card behind
+   * it, which is the whole test. Whether the skill graph can then be updated,
+   * and how well they did, are separate questions and neither should be able
+   * to cost them the credit they earned by turning work in.
+   *
+   * After the guard, never before it — a page that failed it has not submitted
+   * anything.
+   */
+  await fetch(`${SKILL_GRAPH_URL}/students/${encodeURIComponent(context.student.id)}/leaves/earn`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ taskId: context.taskId }),
+  }).catch(() => undefined)
+
   const observations = toObservations(evaluation.questions ?? [])
   if (!isRecordable(observations)) return
 
