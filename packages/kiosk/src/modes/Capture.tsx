@@ -30,6 +30,7 @@ import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
 import { readCardIdentity } from '../lib/card-scan'
 import LeafCount from '../platform/LeafCount'
+import GetCard from './GetCard'
 import FloorPlan from './FloorPlan'
 
 interface Props {
@@ -697,6 +698,18 @@ export default function Capture({ student, onSwitchStudent }: Props) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {!browsing && !showingProgress && phase === 'live' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, margin: '0 0 6px' }}>
+          {/*
+            The start of the loop, above the camera controls rather than beside
+            them. A child who arrives empty-handed needs paper before anything
+            here is any use to them, and until this button existed the station
+            could read work it had no way to give out.
+          */}
+          <GetCard student={student} onPrinted={() => setLeafRefresh((n) => n + 1)} />
         </div>
       )}
 
