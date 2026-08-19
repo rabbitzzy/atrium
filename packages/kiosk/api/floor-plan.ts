@@ -18,6 +18,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { relay } from './_lib/relay'
 
 const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
 
@@ -29,19 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // along because a child who taps a spoke wants to know which part of it moved.
   const url = `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/radar?depth=2&spokes=1`
 
-  try {
-    const upstream = await fetch(url, { headers: { accept: 'application/json' } })
-    if (!upstream.ok) {
-      return res
-        .status(502)
-        .json({ error: `skill-graph answered ${upstream.status}`, studentId })
-    }
-    const body = await upstream.json()
-    return res.status(200).json(body)
-  } catch {
-    // The service being down is an ordinary condition at a kiosk, not an
-    // exception: the station keeps working, the progress screen says it cannot
-    // reach the numbers right now, and no child sees a stack trace.
-    return res.status(503).json({ error: 'skill-graph is unreachable', studentId })
-  }
+  // A station that cannot reach the service keeps working; the progress screen
+  // says it cannot read the numbers right now, and no child sees a stack trace.
+  return relay(res, url, { headers: { accept: 'application/json' } })
 }

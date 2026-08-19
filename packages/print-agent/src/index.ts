@@ -49,6 +49,13 @@
  * Copies are not a parameter. One Card, one Leaf, one sheet.
  */
 
+import { config } from 'dotenv'
+// Every service reads the repo-root .env, the way worksheet-print already did.
+// Without this, `pnpm dev` starts a process that answers /health and 500s on
+// every route that touches the database — which looks like a network fault
+// from the outside and is not one.
+config({ path: new URL('../../../.env', import.meta.url).pathname })
+
 import { spawn } from 'node:child_process'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
