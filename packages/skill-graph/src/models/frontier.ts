@@ -190,7 +190,30 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
   const needsTeacher = unlocked
     .filter((r) => r.consecutiveFailures >= FAILURE_LIMIT)
     .map((r) => r.kcId)
-  const eligible = unlocked.filter((r) => r.consecutiveFailures < FAILURE_LIMIT)
+  const reachable = unlocked.filter((r) => r.consecutiveFailures < FAILURE_LIMIT)
+
+  /*
+   * Do not assign a Room the teacher has said the child is past.
+   *
+   * Letting these through produced the wrong Card for a real student. An entry
+   * Room scores `readiness = 1` because nothing comes before it, while a Room
+   * at the child's own level reached through assumed prerequisites scores 0.5 —
+   * a 0.225 advantage that no amount of "this is at their level" overcomes. So
+   * an eight-year-old placed at grade 3 was handed the grade-2 foundation,
+   * every time, because the foundation had the shortest scaffolding.
+   *
+   * Which is second-guessing the placement. BHCS-32's whole premise is that a
+   * teacher's estimate of where a child is beats anything the station can work
+   * out in a first session; taking that estimate and then assigning the Rooms
+   * it says they are past ignores it in the one place it mattered.
+   *
+   * They stay reachable rather than deleted. If everything a student can reach
+   * is something they are assumed to know, that is not a dead end and they
+   * should get one anyway — better a Card that is too easy than no Card.
+   */
+  const worthAssigning = reachable.filter((r) => !assumed.has(r.kcId))
+  const eligible = worthAssigning.length > 0 ? worthAssigning : reachable
+  const onlyAssumed = worthAssigning.length === 0 && reachable.length > 0
 
   if (!eligible.length) {
     const stuck = needsTeacher.length > 0
@@ -218,17 +241,28 @@ export function planNext(rooms: FloorPlanRoom[]): Plan {
     )
 
   const top = candidates[0]!
+  const explained = onlyAssumed
+    ? {
+        en: `${top.labelEn} is the only kind of work left that this student can reach — everything unlocked is something they were placed above, so this may well be too easy.`,
+        zh: `「${top.labelZh}」是这位学生目前唯一能做的内容——已解锁的房间都是老师认为他们已经会的，所以这张卡可能偏简单。`,
+      }
+    : null
+
   return {
     outcome: untouched ? 'bootstrap' : 'planned',
     targetKcId: top.kcId,
     candidates,
     needsTeacher,
-    reasonEn: untouched
-      ? `No work has been recorded yet, so this is a starting point rather than a plan: ${top.labelEn} is one of the Rooms with nothing before it.`
-      : explain(top, 'en'),
-    reasonZh: untouched
-      ? `目前还没有任何练习记录，所以这只是一个起点：「${top.labelZh}」是没有前置要求的房间之一。`
-      : explain(top, 'zh'),
+    reasonEn: explained
+      ? explained.en
+      : untouched
+        ? `No work has been recorded yet, so this is a starting point rather than a plan: ${top.labelEn} is one of the Rooms with nothing before it.`
+        : explain(top, 'en'),
+    reasonZh: explained
+      ? explained.zh
+      : untouched
+        ? `目前还没有任何练习记录，所以这只是一个起点：「${top.labelZh}」是没有前置要求的房间之一。`
+        : explain(top, 'zh'),
   }
 }
 
