@@ -53,7 +53,8 @@ description of code that exists.
 - **Leaf balance** displayed top-right: `🌿 N Leaves` — updates in real time after earn/spend events
 - User messages → `POST /api/skill-graph/chat` (wraps Claude claude-sonnet-4-6 with student context)
 - Docent responses include: hint, encouragement, or "I think you're ready — print your Card!"
-- When a Card is ready: `POST /api/worksheet/generate` → trigger browser print dialog
+- When a Card is ready: `POST /api/worksheet/generate` → POST the PDF to the print agent (`packages/print-agent`, BHCS-67)
+  - **Not a browser print dialog.** It has a printer picker, a page-range field, a copies spinner and a cancel button, any of which turns a Leaf into nothing. The browser hands the PDF to an agent on the LAN and there is no dialog to suppress.
   - If `leaf_balance < 1`, show zero-balance state instead of print button: *"You're out of Leaves. Turn in your Card to earn one!"* (Docent voice line + on-screen message)
   - If print succeeds, Docent says: *"Here comes your Card! You've got [N] Leaves left."*
 - Voice input (Phase 3): capture mic → Whisper STT → append as user message. Output is not deferred — see read-aloud below.
