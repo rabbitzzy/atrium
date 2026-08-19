@@ -191,9 +191,28 @@ describe('a placement opening doors without becoming mastery', () => {
     const placed = room('foundation', { masteryProb: 0.85, attempts: 0, evidence: 0 })
     expect(isAssumedPassed(placed)).toBe(true)
     expect(isMastered(placed)).toBe(false)
-    // So the foundation is still offered — just no longer as the only option.
-    const plan = planNext([placed, room('next', { masteryProb: 0.45, prerequisiteIds: ['foundation'] })])
-    expect(plan.candidates.map((c) => c.kcId)).toContain('foundation')
+  })
+
+  // The defect this rule exists for: an entry Room scores readiness 1 because
+  // nothing precedes it, which beat every level-appropriate Room reached
+  // through the placement — so a child placed at grade 3 got the grade-2
+  // foundation every time.
+  it('does not assign a Room the teacher placed the child above', () => {
+    const plan = planNext([
+      room('foundation', { masteryProb: 0.85, attempts: 0, difficulty: 2 }),
+      room('their-level', { masteryProb: 0.45, attempts: 0, difficulty: 3, prerequisiteIds: ['foundation'] }),
+    ])
+    expect(plan.targetKcId).toBe('their-level')
+    expect(plan.candidates.map((c) => c.kcId)).not.toContain('foundation')
+  })
+
+  // Better a Card that is too easy than no Card.
+  it('assigns one anyway when everything reachable is assumed known', () => {
+    const plan = planNext([room('foundation', { masteryProb: 0.85, attempts: 0 })])
+    expect(plan.outcome).toBe('bootstrap')
+    expect(plan.targetKcId).toBe('foundation')
+    expect(plan.reasonEn).toContain('too easy')
+    expect(plan.reasonZh).toContain('偏简单')
   })
 
   // The guard that keeps this from unlocking on real, partial work.
