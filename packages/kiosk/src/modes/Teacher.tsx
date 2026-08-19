@@ -43,6 +43,7 @@
 
 import { useEffect, useState } from 'react'
 import { qc } from '@atrium/app-worksheet/tiers'
+import Placement from './Placement'
 
 interface Question {
   number?: number
@@ -64,7 +65,10 @@ interface QueueItem {
   questions: Question[]
 }
 
+type Tab = 'queue' | 'placement'
+
 export default function Teacher() {
+  const [tab, setTab] = useState<Tab>('queue')
   const [items, setItems] = useState<QueueItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
@@ -91,20 +95,33 @@ export default function Teacher() {
   return (
     <div style={page}>
       <header style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: 24 }}>Review queue</h1>
-        <p style={{ margin: 0, fontSize: 14, color: '#6b6a75' }}>
-          Every AI grade from the last 7 days that nobody has signed off. Hardest cases first.
-          {items && ` ${items.length} waiting.`}
-        </p>
+        <h1 style={{ margin: '0 0 12px', fontSize: 24 }}>
+          {tab === 'queue' ? 'Review queue' : 'Place a student'}
+        </h1>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button type="button" style={tabBtn(tab === 'queue')} onClick={() => setTab('queue')}>
+            Review queue{items ? ` (${items.length})` : ''}
+          </button>
+          <button type="button" style={tabBtn(tab === 'placement')} onClick={() => setTab('placement')}>
+            Place a student
+          </button>
+        </div>
+        {tab === 'queue' && (
+          <p style={{ margin: 0, fontSize: 14, color: '#6b6a75' }}>
+            Every AI grade from the last 7 days that nobody has signed off. Hardest cases first.
+          </p>
+        )}
       </header>
 
-      {error && <p style={{ color: '#b4432f' }}>{error}</p>}
-      {!items && !error && <p style={{ color: '#6b6a75' }}>Loading…</p>}
-      {items?.length === 0 && (
+      {tab === 'placement' && <Placement />}
+
+      {tab === 'queue' && error && <p style={{ color: '#b4432f' }}>{error}</p>}
+      {tab === 'queue' && !items && !error && <p style={{ color: '#6b6a75' }}>Loading…</p>}
+      {tab === 'queue' && items?.length === 0 && (
         <p style={{ color: '#6b6a75' }}>Nothing waiting. Every grade this week has been seen.</p>
       )}
 
-      {items?.map((item, i) => {
+      {tab === 'queue' && items?.map((item, i) => {
         const look = qc(item.overallQuality)
         const isOpen = open === item.sessionTaskId
         return (
@@ -179,6 +196,18 @@ function adminHeader(): Record<string, string> {
   const t = localStorage.getItem('atrium.adminToken')
   return t ? { 'x-admin-token': t } : {}
 }
+
+const tabBtn = (active: boolean): React.CSSProperties => ({
+  padding: '8px 16px',
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: 'DM Sans, sans-serif',
+  borderRadius: 10,
+  border: active ? '2px solid #1a1a2e' : '2px solid #d0cdc8',
+  background: active ? '#1a1a2e' : '#fff',
+  color: active ? '#fff' : '#1a1a2e',
+  cursor: 'pointer',
+})
 
 const page: React.CSSProperties = {
   fontFamily: 'DM Sans, sans-serif',
