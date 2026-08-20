@@ -394,18 +394,44 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
     return c.json({ error: 'kcIds must be assessable leaves, not headings', headings }, 400)
   }
 
-  // ── Replay? ────────────────────────────────────────────────
-  let alreadyApplied: string[] = []
-  if (body.captureId) {
-    const { data: seen, error } = await db
-      .from('kc_attempts')
-      .select('kc_id')
-      .eq('capture_id', body.captureId)
-      .in('kc_id', kcIds)
+  // ── What of this work has already been counted? ────────────
+  //
+  // Per question, not per Room, and keyed on the *work* rather than the
+  // photograph of it. A capture is one picture; a child who photographs their
+  // finished Card twice makes two of them, and counting both moved five
+  // questions of work into their mastery twice over. What should be counted
+  // once is the Card.
+  //
+  // Doing it per question is what keeps the useful case working: three
+  // questions done, scanned, the rest finished, scanned again — the second scan
+  // adds four and five and refuses one to three.
+  const workIsTask = Boolean(body.taskId)
+  const workId = body.taskId ?? body.captureId ?? null
+
+  const counted = new Map<string, Set<number | null>>()
+  if (workId) {
+    const query = db.from('kc_attempts').select('kc_id, question_number').in('kc_id', kcIds)
+    const { data: seen, error } = await (workIsTask
+      ? query.eq('task_id', workId)
+      : query.eq('capture_id', workId))
     if (error) return c.json({ error: error.message }, 500)
-    alreadyApplied = (seen ?? []).map((r) => r.kc_id as string)
+    for (const row of seen ?? []) {
+      const kc = row.kc_id as string
+      const set = counted.get(kc) ?? new Set<number | null>()
+      set.add((row.question_number as number | null) ?? null)
+      counted.set(kc, set)
+    }
   }
-  const todo = kcIds.filter((id) => !alreadyApplied.includes(id))
+
+  /** What is left to record for a Room, once what is already counted is removed. */
+  const freshFor = (kcId: string) => {
+    const already = counted.get(kcId)
+    if (!already) return observations
+    return observations.filter((o) => !already.has(o.number))
+  }
+
+  const alreadyApplied = kcIds.filter((id) => freshFor(id).length === 0 && counted.has(id))
+  const todo = kcIds.filter((id) => freshFor(id).length > 0)
 
   if (!todo.length) {
     const state = await readState(db, studentId, kcIds)
@@ -499,8 +525,9 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
     let running = before
     let floored = false
     const ledgerRows: Record<string, unknown>[] = []
+    const fresh = freshFor(kcId)
 
-    for (const obs of observations) {
+    for (const obs of fresh) {
       const raw = bktUpdateWeighted(running, obs.correct, params, obs.weight)
       const next = applySessionFloor(raw, floorAnchor)
       if (next !== raw) floored = true
@@ -516,6 +543,8 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
         mastery_after: next,
       }
       if (body.captureId) row['capture_id'] = body.captureId
+      // The Card, so a second photograph of it collides rather than counts.
+      if (body.taskId) row['task_id'] = body.taskId
       if (obs.number !== null) row['question_number'] = obs.number
       if (body.simulated) row['simulated'] = true
       ledgerRows.push(row)
@@ -528,8 +557,9 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
     // way to tell which half.
     const { error: ledgerError } = await db.from('kc_attempts').insert(ledgerRows)
     if (ledgerError) {
-      // 23505: this capture's rows are already there. That is the double-scan
-      // case, not a failure.
+      // 23505: this work is already recorded. The pre-check above catches the
+      // ordinary case; this catches two scans arriving at once, and the index
+      // is what actually decides it.
       if (ledgerError.code === '23505') {
         replayedNow.push(kcId)
         continue
@@ -537,8 +567,8 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       return c.json({ error: ledgerError.message }, 500)
     }
 
-    const attempts = (prior?.attempts ?? 0) + observations.length
-    const evidence = (prior?.evidence ?? 0) + observations.reduce((sum, o) => sum + o.weight, 0)
+    const attempts = (prior?.attempts ?? 0) + fresh.length
+    const evidence = (prior?.evidence ?? 0) + fresh.reduce((sum, o) => sum + o.weight, 0)
     const { error: stateError } = await db.from('student_kc_state').upsert(
       {
         student_id: studentId,
@@ -562,9 +592,9 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       // sequence — worth surfacing, because it means the raw evidence said
       // something harsher than the number shows.
       floored,
-      questions: observations.length,
       attempts,
       evidence,
+      questions: fresh.length,
       band: confidenceBand(after, evidence),
     })
   }
