@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  LAYOUTS,
+  layoutFor,
+  SLOT_BOTTOM_LIMIT,
+  SLOT_TOP,
   ANSWER_H,
   ANSWER_W,
   answerRegions,
@@ -170,5 +174,77 @@ describe('renderFixedCard', () => {
   it('tells the student the Card is worth a Leaf, in both languages', () => {
     expect(html).toContain('Leaf')
     expect(html).toContain('叶子')
+  })
+})
+
+
+describe('how many questions a Card holds, by grade', () => {
+  it('gives a five-year-old fewer questions and more room', () => {
+    const early = layoutFor(1)
+    const upper = layoutFor(5)
+    expect(early.slots).toBeLessThan(upper.slots)
+    expect(early.answerH).toBeGreaterThan(upper.answerH)
+    expect(early.promptChars).toBeGreaterThan(upper.promptChars)
+  })
+
+  // The tension worth encoding: the count only rises because the prompts
+  // shrink. A page cannot hold nine of anything.
+  it('never raises the count without lowering the prompt budget', () => {
+    const bands = [LAYOUTS.early, LAYOUTS.middle, LAYOUTS.upper]
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i]!.slots).toBeGreaterThan(bands[i - 1]!.slots)
+      expect(bands[i]!.promptChars).toBeLessThan(bands[i - 1]!.promptChars)
+    }
+  })
+
+  it('bands by grade, and the boundaries are where they are claimed', () => {
+    expect(layoutFor(1)).toBe(LAYOUTS.early)
+    expect(layoutFor(2)).toBe(LAYOUTS.early)
+    expect(layoutFor(3)).toBe(LAYOUTS.middle)
+    expect(layoutFor(4)).toBe(LAYOUTS.middle)
+    expect(layoutFor(5)).toBe(LAYOUTS.upper)
+  })
+
+  // The arithmetic is tight on Letter and the first five-slot draft failed
+  // exactly here, so every band is held to it rather than just the one.
+  it('fits every band above the footer and the corner marks', () => {
+    for (const [name, l] of Object.entries(LAYOUTS)) {
+      const lastBottom = SLOT_TOP + (l.slots - 1) * l.slotH + l.promptH + l.answerH
+      expect(lastBottom, name).toBeLessThanOrEqual(SLOT_BOTTOM_LIMIT)
+    }
+  })
+
+  it('leaves a gap between every answer box and the next slot, in every band', () => {
+    for (const [name, l] of Object.entries(LAYOUTS)) {
+      expect(l.slotH, name).toBeGreaterThan(l.promptH + l.answerH)
+    }
+  })
+
+  it('never returns overlapping regions, in any band', () => {
+    for (const d of [1, 3, 5]) {
+      const rs = answerRegions(99, d)
+      expect(rs).toHaveLength(layoutFor(d).slots)
+      for (let i = 1; i < rs.length; i++) {
+        expect(rs[i]!.y).toBeGreaterThan(rs[i - 1]!.y + rs[i - 1]!.h)
+      }
+      for (const r of rs) expect(r.y + r.h).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('keeps the prompt legible even at the tightest band', () => {
+    expect(promptFontMm('x'.repeat(400), LAYOUTS.upper)).toBeGreaterThanOrEqual(2.2)
+  })
+
+  it('renders the number of slots the band calls for', () => {
+    const nine = renderFixedCard(
+      Array.from({ length: 12 }, (_, i) => problem(i + 1, `q${i}`)),
+      { ...META, difficulty: 5 },
+    )
+    expect((nine.match(/class="answer"/g) ?? [])).toHaveLength(LAYOUTS.upper.slots)
+    const five = renderFixedCard(
+      Array.from({ length: 12 }, (_, i) => problem(i + 1, `q${i}`)),
+      { ...META, difficulty: 1 },
+    )
+    expect((five.match(/class="answer"/g) ?? [])).toHaveLength(LAYOUTS.early.slots)
   })
 })

@@ -73,10 +73,23 @@ export const PROBLEM_SCHEMA: GeminiSchema = {
 
 /** Never fewer than this, or the Card is not worth the sheet it costs. */
 export const MIN_PROBLEMS = 3
-/** Never more, or it will not fit the fixed layout the scanner depends on. */
-export const MAX_PROBLEMS = 5
 
-export function buildProblemPrompt(rooms: TargetRoom[], count = MAX_PROBLEMS): string {
+/**
+ * How many to ask for, and how long each may be.
+ *
+ * Both come from the layout the Card will be printed in, because they are the
+ * same fact: nine questions fit on a page only if the prompts are short enough
+ * for an 11mm slot. Asking for nine and letting the model write word problems
+ * produces a Card that overflows every box on it.
+ */
+export interface ProblemBudget {
+  count: number
+  /** Roughly the longest a single prompt may be, in characters. */
+  chars: number
+}
+
+export function buildProblemPrompt(rooms: TargetRoom[], budget: ProblemBudget): string {
+  const count = budget.count
   const roomLines = rooms
     .map((r) => `- ${r.labelEn} / ${r.labelZh} (grade ${r.difficulty}, id ${r.id})`)
     .join('\n')
@@ -104,6 +117,11 @@ Rules that are not negotiable:
 - Grade-appropriate for the band above. Grade 1 means one step and words a six-year-old says out loud. Grade 5 means several steps and an inference.
 - Unambiguous. Exactly one correct answer, and a child who knows the skill can tell what is being asked without a teacher.
 - Vary the shape. Five near-identical problems teach nothing that one problem does not.
+- Keep each prompt under about ${budget.chars} characters, in both languages. This is a physical
+  constraint, not a style note: the printed Card gives every question a fixed box, and a prompt
+  that runs long is set in smaller type until it stops being readable by the child it is for. If a
+  skill genuinely cannot be asked in that space, ask a simpler case of it rather than a longer
+  sentence.
 
 answerLines is how much room to leave: 1 for a number or a single word, 2 to 3 for working out, 4 for a written sentence or two.`
 }
@@ -118,7 +136,7 @@ export class ProblemGenerationError extends Error {}
  * is asked for `number` and mostly obliges, but a Card whose questions run 1, 2,
  * 2, 4 cannot be matched to answer regions on the way back in.
  */
-export function validateProblems(raw: unknown): GeneratedProblem[] {
+export function validateProblems(raw: unknown, max = 5): GeneratedProblem[] {
   const list = (raw as { problems?: unknown })?.problems
   if (!Array.isArray(list)) {
     throw new ProblemGenerationError('model returned no problems array')
@@ -148,5 +166,5 @@ export function validateProblems(raw: unknown): GeneratedProblem[] {
       `only ${problems.length} usable problem${problems.length === 1 ? '' : 's'}; a Card costs a Leaf and a sheet, so it is not printed`,
     )
   }
-  return problems.slice(0, MAX_PROBLEMS)
+  return problems.slice(0, max)
 }
