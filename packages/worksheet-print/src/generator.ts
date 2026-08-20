@@ -2,7 +2,7 @@ import QRCode from 'qrcode'
 import puppeteer from 'puppeteer'
 import { encodeCardQr } from '@atrium/card-qr'
 import { fetchRooms, registerTask, spendLeaf } from './blueprint.js'
-import { answerRegions, renderFixedCard } from './template.js'
+import { answerRegions, layoutFor, renderFixedCard } from './template.js'
 import {
   buildProblemPrompt,
   PROBLEM_SCHEMA,
@@ -51,8 +51,13 @@ export async function generateCard(
   asHtml = false,
 ): Promise<{ pdf: Buffer; html: string; balance: number }> {
   const rooms = await fetchRooms(req.kcIds)
-  const problems = await generateProblems(rooms)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
+
+  // How many questions and how long each may be, both from the grade band the
+  // Card will print in. A five-year-old gets five with room to work; a
+  // fifth-grader gets nine short ones and the same sheet of paper.
+  const layout = layoutFor(difficulty)
+  const problems = await generateProblems(rooms, { count: layout.slots, chars: layout.promptChars })
 
   // Registered before anything reaches paper. A Card printed without a task
   // behind it is unscannable work: the child does it, hands it back, and the
@@ -66,7 +71,9 @@ export async function generateCard(
     kcIds: rooms.map((r) => r.id),
     // What was asked and where the answers will be. The evaluator needs both,
     // and after BHCS-36 the regions are knowable before the page exists.
-    rubric: { problems, answerRegions: answerRegions(problems.length) },
+    // The regions for *this* Card's layout, not the default one. Storing them
+    // per task is what lets the layout vary by grade at all (BHCS-36/37).
+    rubric: { problems, answerRegions: answerRegions(problems.length, difficulty), layout },
   })
 
   const qrDataUrl = await QRCode.toDataURL(
@@ -111,12 +118,15 @@ export async function generateCard(
  * `response_mime_type: application/json` and swallowed a parse failure into an
  * empty array, which rendered a Card with a header, a QR code and no questions.
  */
-async function generateProblems(rooms: TargetRoom[]): Promise<GeneratedProblem[]> {
+async function generateProblems(
+  rooms: TargetRoom[],
+  budget: { count: number; chars: number },
+): Promise<GeneratedProblem[]> {
   const res = await fetch(`${GEMINI_URL}?key=${process.env['GEMINI_API_KEY']}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: buildProblemPrompt(rooms) }] }],
+      contents: [{ role: 'user', parts: [{ text: buildProblemPrompt(rooms, budget) }] }],
       generationConfig: {
         response_mime_type: 'application/json',
         response_schema: PROBLEM_SCHEMA,
@@ -139,7 +149,7 @@ async function generateProblems(rooms: TargetRoom[]): Promise<GeneratedProblem[]
   } catch {
     throw new ProblemGenerationError('Gemini returned text that is not JSON')
   }
-  return validateProblems(parsed)
+  return validateProblems(parsed, budget.count)
 }
 
 // ─── v0 hardcoded worksheet ───────────────────────────────────────────────────

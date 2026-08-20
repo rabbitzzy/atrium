@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildProblemPrompt,
-  MAX_PROBLEMS,
   MIN_PROBLEMS,
   ProblemGenerationError,
   validateProblems,
@@ -21,6 +20,8 @@ const MAIN_IDEA: TargetRoom = {
   difficulty: 2,
 }
 
+const BUDGET = { count: 5, chars: 110 }
+
 const ok = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
     number: i + 1,
@@ -31,26 +32,26 @@ const ok = (n: number) =>
 
 describe('buildProblemPrompt', () => {
   it('describes the Room instead of pasting its id', () => {
-    const prompt = buildProblemPrompt([ADD3])
+    const prompt = buildProblemPrompt([ADD3], BUDGET)
     expect(prompt).toContain('Add 3-digit numbers with regrouping')
     expect(prompt).toContain('三位数进位加法')
     expect(prompt).toContain('grade 2')
   })
 
   it('still carries the id, so a generation can be traced to a Room', () => {
-    expect(buildProblemPrompt([ADD3])).toContain('math/base-ten/add-3-digit')
+    expect(buildProblemPrompt([ADD3], BUDGET)).toContain('math/base-ten/add-3-digit')
   })
 
   // A crossover Card exists to fail for two different reasons at once, so
   // alternating between the two skills would defeat the point of it.
   it('tells the model to combine paired Rooms, not alternate them', () => {
-    const paired = buildProblemPrompt([ADD3, MAIN_IDEA])
+    const paired = buildProblemPrompt([ADD3, MAIN_IDEA], BUDGET)
     expect(paired).toContain('need both at once')
-    expect(buildProblemPrompt([ADD3])).not.toContain('need both at once')
+    expect(buildProblemPrompt([ADD3], BUDGET)).not.toContain('need both at once')
   })
 
   it('asks for a real translation rather than a gloss', () => {
-    expect(buildProblemPrompt([ADD3])).toContain('not a word-for-word rendering')
+    expect(buildProblemPrompt([ADD3], BUDGET)).toContain('not a word-for-word rendering')
   })
 })
 
@@ -75,8 +76,9 @@ describe('validateProblems', () => {
     expect(validateProblems({ problems: ok(MIN_PROBLEMS) })).toHaveLength(MIN_PROBLEMS)
   })
 
-  it('trims to what the fixed layout can hold', () => {
-    expect(validateProblems({ problems: ok(9) })).toHaveLength(MAX_PROBLEMS)
+  it('trims to what the layout it was asked for can hold', () => {
+    expect(validateProblems({ problems: ok(12) }, 5)).toHaveLength(5)
+    expect(validateProblems({ problems: ok(12) }, 9)).toHaveLength(9)
   })
 
   // A bilingual school; a monolingual problem silently excludes whichever

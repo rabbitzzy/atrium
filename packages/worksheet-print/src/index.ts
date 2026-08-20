@@ -11,7 +11,7 @@ import puppeteer from 'puppeteer'
 import { generateCard, renderV0Html, renderV0FilledHtml } from './generator.js'
 import { BlueprintError, fetchLanding, InsufficientLeavesError, readLeafBalance } from './blueprint.js'
 import { ProblemGenerationError } from './problems.js'
-import { answerRegions, fiducialRegions, PAGE_H, PAGE_W } from './template.js'
+import { answerRegions, fiducialRegions, LAYOUTS, layoutFor, PAGE_H, PAGE_W } from './template.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -31,37 +31,34 @@ app.get('/health', (c) => c.json({ ok: true }))
  * Fractions of the page rather than pixels or millimetres, so a capture at any
  * resolution uses the same numbers.
  */
-app.get('/template/regions', (c) =>
-  c.json({
+app.get('/template/regions', (c) => {
+  // `?grade=` gives one band's map; without it, all three, because there is no
+  // longer a single answer. What has not changed is the guarantee that made
+  // this endpoint worth having: the regions are computed from constants and are
+  // knowable before any page is rendered. A scanned Card is matched against the
+  // map stored on its own task, which is why generation writes it there.
+  const grade = Number(c.req.query('grade'))
+  if (Number.isFinite(grade) && grade >= 1 && grade <= 5) {
+    const layout = layoutFor(grade)
+    return c.json({
+      page: { widthMm: PAGE_W, heightMm: PAGE_H },
+      grade,
+      layout,
+      answers: answerRegions(layout.slots, grade),
+      fiducials: fiducialRegions(),
+    })
+  }
+
+  return c.json({
     page: { widthMm: PAGE_W, heightMm: PAGE_H },
-    answers: answerRegions(),
     fiducials: fiducialRegions(),
-  }),
-)
-
-// GET /print/v0  — serve the hardcoded v0 worksheet as printable HTML
-app.get('/print/v0', async (c) => {
-  const html = await renderV0Html()
-  return c.html(html)
-})
-
-// GET /print/v0/filled  — worksheet with correct answers pre-filled (for scan testing)
-app.get('/print/v0/filled', async (c) => {
-  const html = await renderV0FilledHtml()
-  return c.html(html)
-})
-
-// GET /pdf/v0/filled  — PDF with answers pre-filled, ready to download
-app.get('/pdf/v0/filled', async (c) => {
-  const html = await renderV0FilledHtml()
-  const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
-  const page = await browser.newPage()
-  await page.setContent(html, { waitUntil: 'networkidle0' })
-  const pdf = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0', bottom: '0', left: '0', right: '0' } })
-  await browser.close()
-  c.header('Content-Type', 'application/pdf')
-  c.header('Content-Disposition', 'attachment; filename="test-card-filled.pdf"')
-  return c.body(new Uint8Array(pdf))
+    bands: Object.fromEntries(
+      Object.entries(LAYOUTS).map(([name, layout]) => {
+        const grade = name === 'early' ? 1 : name === 'middle' ? 3 : 5
+        return [name, { layout, answers: answerRegions(layout.slots, grade) }]
+      }),
+    ),
+  })
 })
 
 const GenerateSchema = z.object({

@@ -48,27 +48,83 @@ export const PAGE_H = 279.4
 export const FIDUCIAL_SIZE = 8
 export const FIDUCIAL_INSET = 10
 
-/** How many problem slots a Card has. Fixed — see `SLOT_H` for why. */
-export const SLOT_COUNT = 5
-/** Top of the first slot, below the header band. */
-export const SLOT_TOP = 54
 /**
- * One slot's total height. Fixed rather than per-problem: the moment a slot can
- * grow, every slot below it moves, and the region map stops being knowable
- * without rendering the page.
+ * How much of a Card a question gets, by the grade band of the Room it targets.
  *
- * Must stay at least `PROMPT_H + ANSWER_H`, or consecutive slots overlap. The
- * arithmetic is tight on Letter and the tests hold both ends of it: five slots
- * have to fit between the header rule and the bottom corner marks, and the last
- * answer box has to clear the footer.
+ * A flat five-per-page wastes paper on a fifth-grader doing arithmetic facts
+ * and crowds a five-year-old writing their first characters. But the obvious
+ * rule — older child, more questions — is only half right, and the half that is
+ * wrong matters: older work needs *more* room per question, not less, because
+ * multi-step arithmetic has to be carried somewhere.
+ *
+ * So the count rises only as far as the prompts shrink to allow. Each band
+ * carries a character budget that goes into the generation prompt, and a
+ * fifth-grade Card holds nine questions because nine grade-5 arithmetic
+ * questions are short — not because a page can hold nine of anything.
+ *
+ * Three fixed layouts rather than one, which keeps BHCS-36's actual guarantee:
+ * the answer regions are computable from constants before the page is rendered.
+ * They are no longer the *same* for every Card, so a scan is matched against
+ * the regions stored on its own task — which `rubric_json` has held since
+ * BHCS-37 and which is the reason that was worth storing.
+ *
+ * Where the working goes is the other half of the answer, and it is why Cards
+ * stay single-sided: the back is scratch space. A nine-slot Card leans on that
+ * harder than a five-slot one does.
  */
-export const SLOT_H = 40
-/** Prompt area inside a slot, above the answer box. */
-export const PROMPT_H = 18
+export interface Layout {
+  /** Problem slots on the page. */
+  slots: number
+  /** Total height of one slot. */
+  slotH: number
+  /** Prompt area above the answer box. */
+  promptH: number
+  /** The answer box itself. */
+  answerH: number
+  /**
+   * Roughly how long each prompt may be, in characters, passed to the model.
+   * A budget the generator ignores produces a Card that overflows its slots.
+   */
+  promptChars: number
+}
+
+/**
+ * Bands, not a formula. Three layouts can be looked at and argued with; a
+ * continuously varying page cannot, and every Card would be its own geometry.
+ */
+export const LAYOUTS: Record<'early' | 'middle' | 'upper', Layout> = {
+  // Grades 1–2. Big writing, room to work, few questions.
+  early: { slots: 5, slotH: 40, promptH: 18, answerH: 20, promptChars: 110 },
+  // Grades 3–4.
+  middle: { slots: 7, slotH: 28, promptH: 14, answerH: 12, promptChars: 85 },
+  // Grade 5. Nine only works because the prompts are held short.
+  upper: { slots: 9, slotH: 22, promptH: 11, answerH: 9, promptChars: 60 },
+}
+
+export function layoutFor(difficulty: number): Layout {
+  if (difficulty <= 2) return LAYOUTS.early
+  if (difficulty <= 4) return LAYOUTS.middle
+  return LAYOUTS.upper
+}
+
+/** The old constants, kept as the default band so nothing silently changes. */
+export const SLOT_COUNT = LAYOUTS.early.slots
+export const SLOT_H = LAYOUTS.early.slotH
+export const PROMPT_H = LAYOUTS.early.promptH
+export const ANSWER_H = LAYOUTS.early.answerH
+
+/** Top of the first slot, below the header band. Same for every layout. */
+export const SLOT_TOP = 54
 
 export const ANSWER_X = 24
 export const ANSWER_W = 168
-export const ANSWER_H = 20
+
+/**
+ * The lowest a slot may reach: clear of the footer and the bottom corner marks.
+ * Asserted in the tests for every layout, because the arithmetic is tight on
+ * Letter and the first draft of the five-slot version failed exactly here.
+ */
+export const SLOT_BOTTOM_LIMIT = PAGE_H - FIDUCIAL_INSET - FIDUCIAL_SIZE - 9
 
 export interface Rect {
   /** Fractions of the page, 0–1, origin top-left. */
@@ -89,15 +145,16 @@ export interface AnswerRegion extends Rect {
  * point: this answer is available before the PDF exists and identical for every
  * Card the station ever prints.
  */
-export function answerRegions(count: number = SLOT_COUNT): AnswerRegion[] {
-  return Array.from({ length: Math.min(count, SLOT_COUNT) }, (_, i) => {
-    const top = SLOT_TOP + i * SLOT_H + PROMPT_H
+export function answerRegions(count: number = SLOT_COUNT, difficulty = 1): AnswerRegion[] {
+  const layout = layoutFor(difficulty)
+  return Array.from({ length: Math.min(count, layout.slots) }, (_, i) => {
+    const top = SLOT_TOP + i * layout.slotH + layout.promptH
     return {
       number: i + 1,
       x: ANSWER_X / PAGE_W,
       y: top / PAGE_H,
       w: ANSWER_W / PAGE_W,
-      h: ANSWER_H / PAGE_H,
+      h: layout.answerH / PAGE_H,
     }
   })
 }
@@ -130,10 +187,16 @@ export function fiducialRegions(): Array<Rect & { corner: string }> {
  * and keeps the slot the size it has to be. Three steps rather than a formula,
  * because a continuously varying size looks like a mistake.
  */
-export function promptFontMm(text: string): number {
-  if (text.length <= 60) return 4.6
-  if (text.length <= 120) return 4.0
-  return 3.4
+export function promptFontMm(text: string, layout: Layout = LAYOUTS.early): number {
+  // Scaled to the band: a nine-slot Card has 11mm of prompt area for two
+  // languages, so the same three steps have to start smaller.
+  const base = layout.promptH >= 18 ? 4.6 : layout.promptH >= 14 ? 4.0 : 3.4
+  const step =
+    text.length <= layout.promptChars * 0.55 ? 0 : text.length <= layout.promptChars ? 0.6 : 1.2
+  // Rounded because these land in CSS: `font-size:3.3999999999999995mm` is a
+  // rendering detail leaking into the page, and one decimal is finer than any
+  // printer resolves anyway.
+  return Math.round((base - step) * 10) / 10
 }
 
 export interface CardProblem {
@@ -166,15 +229,16 @@ function fiducialHtml(): string {
 }
 
 export function renderFixedCard(problems: CardProblem[], meta: CardMeta): string {
-  const slots = problems.slice(0, SLOT_COUNT).map((p, i) => {
-    const top = SLOT_TOP + i * SLOT_H
-    const answerTop = top + PROMPT_H
+  const layout = layoutFor(meta.difficulty)
+  const slots = problems.slice(0, layout.slots).map((p, i) => {
+    const top = SLOT_TOP + i * layout.slotH
+    const answerTop = top + layout.promptH
     return `
     <div class="slot" style="top:${top}mm">
       <div class="num">${p.number}</div>
       <div class="prompt">
-        <div class="en" style="font-size:${promptFontMm(p.promptEn)}mm">${esc(p.promptEn)}</div>
-        <div class="zh" style="font-size:${promptFontMm(p.promptZh)}mm">${esc(p.promptZh)}</div>
+        <div class="en" style="font-size:${promptFontMm(p.promptEn, layout)}mm">${esc(p.promptEn)}</div>
+        <div class="zh" style="font-size:${promptFontMm(p.promptZh, layout)}mm">${esc(p.promptZh)}</div>
       </div>
     </div>
     <div class="answer" style="top:${answerTop}mm"></div>`
@@ -208,7 +272,7 @@ export function renderFixedCard(problems: CardProblem[], meta: CardMeta): string
   .qr { position: absolute; right: 0; top: 0; width: 22mm; height: 22mm; }
   .rule { position: absolute; left: ${FIDUCIAL_INSET}mm; right: ${FIDUCIAL_INSET}mm; top: ${SLOT_TOP - 6}mm; border-top: 0.6mm solid #000; }
 
-  .slot { position: absolute; left: ${FIDUCIAL_INSET}mm; right: ${FIDUCIAL_INSET}mm; height: ${PROMPT_H}mm; display: flex; gap: 4mm; overflow: hidden; }
+  .slot { position: absolute; left: ${FIDUCIAL_INSET}mm; right: ${FIDUCIAL_INSET}mm; height: ${layout.promptH}mm; display: flex; gap: 4mm; overflow: hidden; }
   .num { font-size: 5mm; font-weight: 700; width: 8mm; flex: none; }
   .prompt { flex: 1; }
   .en { line-height: 1.25; margin-bottom: 0.8mm; }
@@ -218,7 +282,7 @@ export function renderFixedCard(problems: CardProblem[], meta: CardMeta): string
      millimetre on every Card, whatever the question above it says. */
   .answer {
     position: absolute;
-    left: ${ANSWER_X}mm; width: ${ANSWER_W}mm; height: ${ANSWER_H}mm;
+    left: ${ANSWER_X}mm; width: ${ANSWER_W}mm; height: ${layout.answerH}mm;
     border: 0.5mm solid #666; border-radius: 1.5mm; background: #fff;
   }
 
