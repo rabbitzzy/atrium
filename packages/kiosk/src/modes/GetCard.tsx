@@ -54,7 +54,7 @@ type Outcome =
   | { kind: 'printed'; leavesLeft: number }
   | { kind: 'preview'; taskId: string; html: string; leavesLeft: number }
   | { kind: 'nothing-in-subject'; subject: string }
-  | { kind: 'no-leaves'; balance: number }
+  | { kind: 'no-leaves'; balance: number; bootstrapped: boolean }
   | { kind: 'nothing-to-do' }
   | { kind: 'no-paper' }
   | { kind: 'spent-and-lost' }
@@ -105,7 +105,18 @@ export default function GetCard({
         setState({ kind: 'printed', leavesLeft: body.leavesLeft ?? 0 })
         return
       }
-      if (res.status === 402) return setState({ kind: 'no-leaves', balance: body.balance ?? 0 })
+      if (res.status === 402) {
+        // Zero because they spent them, or zero because nobody has placed them?
+        // Only one of those is fixed by turning in a Card.
+        const leaves = await fetch(`/api/leaves?studentId=${encodeURIComponent(student.id)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+        return setState({
+          kind: 'no-leaves',
+          balance: body.balance ?? 0,
+          bootstrapped: leaves?.bootstrapped !== false,
+        })
+      }
       if (res.status === 409) {
         return subject
           ? setState({ kind: 'nothing-in-subject', subject })
@@ -213,7 +224,7 @@ export default function GetCard({
   }
 
   if (state.kind === 'no-leaves') {
-    const look = leafLook(state.balance)
+    const look = leafLook(state.balance, state.bootstrapped)
     return (
       <Panel tone={look.color}>
         <b style={{ fontSize: 19 }}>{look.speech.en[0]}</b>

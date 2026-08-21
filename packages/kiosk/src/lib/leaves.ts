@@ -61,9 +61,38 @@ const WAYS_OUT = [
   },
 ] as const
 
-export function leafLook(balance: number): LeafLook {
+/**
+ * Zero because they spent them, or zero because nobody set them up?
+ *
+ * The same number, two situations, and only one of them is fixed by turning in
+ * a Card. Telling a child who has never held one to hand one back is a rule
+ * they cannot follow and will experience as the machine being broken — which is
+ * exactly what the zero state was written to avoid.
+ *
+ * `bootstrapped` comes straight from the service: false means there is no print
+ * state at all, which happens only before a teacher has placed them.
+ */
+export function leafLook(balance: number, bootstrapped = true): LeafLook {
   const n = Math.max(0, Math.min(LEAF_CEILING, Math.round(balance)))
   const unitEn = n === 1 ? 'Leaf' : 'Leaves'
+
+  if (!bootstrapped) {
+    return {
+      color: LEAF_AMBER,
+      glyph: '🌿',
+      labelEn: 'Not set up yet',
+      labelZh: '还没有设置',
+      hintEn: 'Ask your teacher to get you started',
+      hintZh: '请老师帮你开始',
+      waysOut: [
+        { en: 'Your teacher sets up your first Cards', zh: '老师会帮你准备第一批练习卡' },
+      ],
+      speech: {
+        en: ["You're not set up yet.", 'Ask your teacher to get you started.'],
+        zh: ['你还没有设置好。', '请老师帮你开始。'],
+      },
+    }
+  }
 
   if (n === 0) {
     return {

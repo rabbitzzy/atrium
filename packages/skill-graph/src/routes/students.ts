@@ -873,6 +873,64 @@ router.post('/:id/leaves/earn', zValidator('json', z.object({
 })
 
 /**
+ * The sanctioned ways past the print gate (BHCS-47).
+ *
+ * A grant is the only bypass, which is exactly why the reason is required
+ * rather than free text. The distribution of reasons is the record of *why* the
+ * gate ever gave way, and one dominated by "teacher discretion" is a signal
+ * that the gate is mis-tuned for how the room actually runs — a fact nobody can
+ * read out of a pile of ungrouped grants.
+ */
+const GRANT_REASONS = ['make-up', 'first-session', 'group-activity', 'teacher-discretion'] as const
+
+const GrantSchema = z.object({
+  amount: z.number().int().min(1).max(5).default(1),
+  reason: z.enum(GRANT_REASONS),
+  grantedBy: z.string().min(1),
+})
+
+/**
+ * POST /students/:id/leaves/grant — a teacher says yes.
+ *
+ * Goes through `grant_leaves`, so the ceiling holds, the balance and the ledger
+ * move together, and a grant that lands on a full basket writes no event rather
+ * than an event for a Leaf that never arrived.
+ *
+ * The response says what was actually applied, not what was asked for. A
+ * teacher who grants two to a child at four needs to be told they got one, or
+ * the next thing they do is grant again.
+ */
+router.post('/:id/leaves/grant', zValidator('json', GrantSchema), async (c) => {
+  const studentId = c.req.param('id')
+  const body = c.req.valid('json')
+  const db = getSupabase()
+
+  const { data: before } = await db
+    .from('student_print_state')
+    .select('leaf_balance')
+    .eq('student_id', studentId)
+    .maybeSingle()
+
+  const { data, error } = await db.rpc('grant_leaves', {
+    p_student_id: studentId,
+    p_amount: body.amount,
+    p_reason: body.reason,
+    p_granted_by: body.grantedBy,
+  })
+  if (error) return c.json({ error: error.message }, 500)
+
+  const balance = data as number
+  const had = (before?.leaf_balance as number | undefined) ?? 0
+  return c.json({
+    studentId,
+    balance,
+    granted: balance - had,
+    asked: body.amount,
+    capped: balance - had < body.amount,
+  })
+})
+
+/**
  * POST /students/:id/leaves/spend — take one Leaf for a Card (BHCS-38).
  *
  * 402 is the whole ticket: a student at zero cannot print, by any route. The

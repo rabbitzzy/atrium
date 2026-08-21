@@ -31,13 +31,18 @@ export default function LeafCount({
   refreshKey?: number
 }) {
   const [balance, setBalance] = useState<number | null>(null)
+  const [bootstrapped, setBootstrapped] = useState(true)
 
   useEffect(() => {
     let live = true
     const read = () =>
       fetch(`/api/leaves?studentId=${encodeURIComponent(student.id)}`)
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-        .then((d: { balance?: number }) => live && setBalance(d.balance ?? 0))
+        .then((d: { balance?: number; bootstrapped?: boolean }) => {
+          if (!live) return
+          setBalance(d.balance ?? 0)
+          setBootstrapped(d.bootstrapped !== false)
+        })
         .catch(() => undefined)
 
     read()
@@ -52,7 +57,7 @@ export default function LeafCount({
   // itself would tell a child they are out of Leaves when they are not.
   if (balance === null) return null
 
-  const look = leafLook(balance)
+  const look = leafLook(balance, bootstrapped)
   const zero = balance === 0
 
   return (
