@@ -32,20 +32,34 @@ import { leafLook, spentLine } from '../lib/leaves'
 import SimulateCard from './SimulateCard'
 
 /**
- * The three doors, as a child names them.
+ * Four doors, all the same size.
  *
- * Choosing the subject is choosing a door, never a difficulty — the Blueprint
- * still picks which Room is behind it, so a child cannot opt into easy work.
- * That division is what makes the choice safe to give them.
+ * This was a big default button with the three subjects folded behind an "or
+ * pick a subject" link. Defensible on paper — the planner's own choice is
+ * better informed than a child's — and wrong in front of a six-year-old, who
+ * has to read a link, understand it offers something, tap it, and only then
+ * choose. Two taps and a disclosure to answer a question they already had an
+ * answer to.
  *
- * There is no "any" option. The planner's own pick is the default and is what
- * the plain button does; these are the override, which is a different thing
- * from a menu with four items.
+ * Flat, the whole thing is one decision: which of these four. The planner's
+ * pick did not disappear, it became a door like the others and got a name a
+ * child can want to press.
+ *
+ * Choosing a door is still not choosing a difficulty. The Blueprint picks the
+ * Room behind each one, so nobody can opt into easy work — that division is
+ * what made this safe to hand over in the first place and none of it changes by
+ * flattening the menu.
+ *
+ * A clover for luck because it is also a leaf, which is the token this whole
+ * economy is denominated in.
  */
-const SUBJECTS = [
+const DOORS = [
   { id: 'math', en: 'Math', zh: '数学', emoji: '🔢' },
   { id: 'lang/zh', en: 'Chinese', zh: '中文', emoji: '🀄' },
   { id: 'lang/en', en: 'English', zh: '英语', emoji: '📖' },
+  // No subject: the planner ranks the whole Blueprint, which is what it did
+  // before any of this existed.
+  { id: null, en: "I'm lucky", zh: '碰运气', emoji: '🍀' },
 ] as const
 
 type Outcome =
@@ -67,12 +81,10 @@ export default function GetCard({
   onPrinted?: () => void
 }) {
   const [state, setState] = useState<Outcome>({ kind: 'idle' })
-  const [choosing, setChoosing] = useState(false)
   // Set from the admin surface. Off means paper, which is the real thing.
   const simulate = localStorage.getItem('atrium.simulate') === 'on'
 
   async function ask(subject?: string) {
-    setChoosing(false)
     setState({ kind: 'working' })
     try {
       const res = await fetch('/api/card', {
@@ -147,33 +159,30 @@ export default function GetCard({
 
   if (state.kind === 'idle' || state.kind === 'working') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-        <button type="button" style={primary} onClick={() => ask()} disabled={state.kind === 'working'}>
-          {state.kind === 'working' ? (
-            <>Getting your Card… <span style={sub}>正在准备…</span></>
-          ) : (
-            <>🌿 Get my Card <span style={sub}>拿一张练习卡</span></>
-          )}
-        </button>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#5a5a6a' }}>
+          What shall we work on? <span style={{ opacity: 0.75 }}>今天做什么？</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {DOORS.map((d) => (
+            <button
+              key={d.en}
+              type="button"
+              style={door}
+              onClick={() => ask(d.id ?? undefined)}
+              disabled={state.kind === 'working'}
+            >
+              <span style={{ fontSize: 26 }} aria-hidden>{d.emoji}</span>
+              <span>{d.en}</span>
+              <span style={{ fontSize: 13.5, opacity: 0.75, fontWeight: 600 }}>{d.zh}</span>
+            </button>
+          ))}
+        </div>
 
-        {state.kind === 'idle' && !choosing && (
-          <button type="button" style={link} onClick={() => setChoosing(true)}>
-            or pick a subject <span style={{ opacity: 0.7 }}>选一个科目</span>
-          </button>
-        )}
-
-        {/* The override, not a menu. The plain button above is still the
-            recommendation, and this is how a child says "not today". */}
-        {state.kind === 'idle' && choosing && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {SUBJECTS.map((s) => (
-              <button key={s.id} type="button" style={subjectBtn} onClick={() => ask(s.id)}>
-                <span style={{ fontSize: 22 }}>{s.emoji}</span>
-                <span>{s.en}</span>
-                <span style={{ fontSize: 13, opacity: 0.75 }}>{s.zh}</span>
-              </button>
-            ))}
-          </div>
+        {state.kind === 'working' && (
+          <span style={{ fontSize: 15, color: '#4a7c59', fontWeight: 600 }}>
+            Getting your Card… <span style={{ opacity: 0.75 }}>正在准备…</span>
+          </span>
         )}
 
         {simulate && (
@@ -192,7 +201,7 @@ export default function GetCard({
   )
 
   if (state.kind === 'nothing-in-subject') {
-    const s = SUBJECTS.find((x) => x.id === state.subject)
+    const s = DOORS.find((x) => x.id === state.subject)
     return (
       <Panel tone="#4a7c59">
         <b style={{ fontSize: 19 }}>
@@ -289,18 +298,6 @@ function Panel({ tone, children }: { tone: string; children: React.ReactNode }) 
   )
 }
 
-const primary: React.CSSProperties = {
-  padding: '18px 30px',
-  fontSize: 21,
-  fontWeight: 700,
-  fontFamily: 'DM Sans, sans-serif',
-  borderRadius: 16,
-  border: 'none',
-  background: '#4a7c59',
-  color: '#fff',
-  cursor: 'pointer',
-  boxShadow: '0 6px 18px rgba(74,124,89,0.28)',
-}
 const secondary: React.CSSProperties = {
   alignSelf: 'flex-start',
   marginTop: 4,
@@ -326,17 +323,16 @@ const panel: React.CSSProperties = {
   color: '#1a1a2e',
   maxWidth: 520,
 }
-const link: React.CSSProperties = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  fontFamily: 'DM Sans, sans-serif', fontSize: 14.5, color: '#4a7c59',
-  textDecoration: 'underline', padding: 4,
-}
-const subjectBtn: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-  padding: '12px 20px', minWidth: 96,
-  fontFamily: 'DM Sans, sans-serif', fontSize: 16, fontWeight: 700,
-  borderRadius: 14, border: '2px solid #d0cdc8', background: '#fff',
+/**
+ * All four identical, which is the point — a child reading four buttons of the
+ * same size is choosing, not being steered and then offered an escape.
+ */
+const door: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+  padding: '16px 14px', minWidth: 116,
+  fontFamily: 'DM Sans, sans-serif', fontSize: 18, fontWeight: 700,
+  borderRadius: 18, border: '2px solid #4a7c59', background: '#fff',
   color: '#1a1a2e', cursor: 'pointer',
+  boxShadow: '0 3px 10px rgba(74,124,89,0.14)',
 }
-const sub: React.CSSProperties = { fontWeight: 600, opacity: 0.8, fontSize: 17 }
 const zh: React.CSSProperties = { fontSize: 16, color: '#3a3a4a' }
