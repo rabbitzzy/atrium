@@ -76,9 +76,12 @@ type Outcome =
 export default function GetCard({
   student,
   onPrinted,
+  trailing,
 }: {
   student: Student
   onPrinted?: () => void
+  /** Rendered inside the doors row, behind a rule — the way out of this mode. */
+  trailing?: React.ReactNode
 }) {
   const [state, setState] = useState<Outcome>({ kind: 'idle' })
   // Set from the admin surface. Off means paper, which is the real thing.
@@ -177,6 +180,12 @@ export default function GetCard({
               <span style={{ fontSize: 13.5, opacity: 0.75, fontWeight: 600 }}>{d.zh}</span>
             </button>
           ))}
+          {trailing && (
+            <>
+              <div style={rule} aria-hidden />
+              {trailing}
+            </>
+          )}
         </div>
 
         {state.kind === 'working' && (
@@ -327,6 +336,13 @@ const panel: React.CSSProperties = {
  * All four identical, which is the point — a child reading four buttons of the
  * same size is choosing, not being steered and then offered an escape.
  */
+/** Separates the four doors from the way out, which is a different kind of answer. */
+const rule: React.CSSProperties = {
+  width: 1,
+  alignSelf: 'stretch',
+  background: '#d0cdc8',
+  margin: '4px 2px',
+}
 const door: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
   padding: '16px 14px', minWidth: 116,
