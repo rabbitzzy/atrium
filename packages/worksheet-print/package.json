@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "try": "tsx src/try-problems.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.12.0",
