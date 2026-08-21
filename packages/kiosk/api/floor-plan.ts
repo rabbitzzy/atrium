@@ -28,7 +28,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Leaves only, and the drawable strand axes with them. The thirty Rooms come
   // along because a child who taps a spoke wants to know which part of it moved.
-  const url = `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/radar?depth=2&spokes=1`
+  //
+  // `edges=1` is for the map view (BHCS-88), which draws the same thirty Rooms
+  // as a building rather than a polygon. Asked for unconditionally because the
+  // two views share one fetch — a child toggling between them should not wait
+  // twice, and the wiring is a couple of kilobytes.
+  const url = `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/radar?depth=2&spokes=1&edges=1`
 
   // A station that cannot reach the service keeps working; the progress screen
   // says it cannot read the numbers right now, and no child sees a stack trace.

@@ -83,6 +83,33 @@ router.get('/:id/radar', async (c) => {
     )
   }
 
+  // `?edges=1` adds the Blueprint's own wiring (BHCS-88). The radar never
+  // needed it — a strand axis has no inside — but a caller drawing the graph
+  // does, and the alternative is a second round trip to `GET /kcs` for data
+  // this handler has already filtered to the right set of Rooms.
+  //
+  // Only edges with both ends in `points` are returned. Under `?depth=2` that
+  // silently drops every `contains` edge, since one end of each is a heading —
+  // which is the right answer for a drawing (the hierarchy is the layout) and
+  // is stated here so nobody later reads the empty result as a bug.
+  let edges: { from: string; to: string; type: string }[] | undefined
+  if (c.req.query('edges') !== undefined && c.req.query('edges') !== '0') {
+    const { data: rows, error } = await db
+      .from('kc_edges')
+      .select('from_kc_id, to_kc_id, edge_type')
+      .order('from_kc_id')
+    if (error) return c.json({ error: error.message }, 500)
+
+    const onMap = new Set(points.map((p) => p.kcId))
+    edges = (rows ?? [])
+      .filter((e) => onMap.has(e.from_kc_id as string) && onMap.has(e.to_kc_id as string))
+      .map((e) => ({
+        from: e.from_kc_id as string,
+        to: e.to_kc_id as string,
+        type: e.edge_type as string,
+      }))
+  }
+
   return c.json({
     studentId,
     // True when nothing has ever been recorded — every point below is a prior.
@@ -90,6 +117,7 @@ router.get('/:id/radar', async (c) => {
     bootstrapped: (state ?? []).length > 0,
     kcs: points,
     ...(spokes ? { spokes } : {}),
+    ...(edges ? { edges } : {}),
   })
 })
 
