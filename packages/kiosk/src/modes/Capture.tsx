@@ -41,6 +41,9 @@ interface Props {
 
 type Phase = 'setup' | 'live' | 'focusing' | 'uploading' | 'done' | 'error'
 
+/** 250ms a tick, so this is about a second and a half of paper holding still. */
+const PAGE_SETTLE_TICKS = 6
+
 /**
  * Camera discovery is its own state machine. Collapsing these into "no
  * cameras listed" leaves an operator staring at an empty dropdown and a dead
@@ -132,6 +135,21 @@ export default function Capture({ student, onSwitchStudent }: Props) {
   /* Bumped when this Visit does something that changes the balance, so the
      count updates now rather than at the next poll. */
   const [leafRefresh, setLeafRefresh] = useState(0)
+
+  /*
+   * The station does two things and they never happen at once: a child is
+   * either fetching paper or handing it back. Showing both at the same time
+   * made the screen a pile of options where the answer was always obvious from
+   * whether their hands were full.
+   *
+   * `get` is the default because a child with nothing has nothing to scan. The
+   * flip is automatic when a page appears under the camera, and manual in both
+   * directions — a page detected is strong evidence, not proof, and the way
+   * back must never be more than one button.
+   */
+  const [deskMode, setDeskMode] = useState<'get' | 'scan'>('get')
+  /** Whether a page has been sitting under the camera long enough to mean it. */
+  const [sawPage, setSawPage] = useState(false)
   /**
    * Whether the stream has painted a frame — not whether it has been opened.
    *
@@ -180,6 +198,10 @@ export default function Capture({ student, onSwitchStudent }: Props) {
    */
   const showStage =
     !browsing &&
+    // Hidden while fetching paper, though the stream stays live underneath:
+    // detection needs it, and tearing it down restarts the autofocus hunt that
+    // BHCS-9 spent a week on.
+    (deskMode === 'scan' || phase !== 'live') &&
     (phase === 'live' ||
       phase === 'focusing' ||
       (phase === 'setup' && (camState === 'probing' || camState === 'ready')))
@@ -206,10 +228,22 @@ export default function Capture({ student, onSwitchStudent }: Props) {
   useEffect(() => {
     if (phase !== 'live') return
     let cancelled = false
+    /*
+     * Consecutive ticks with a page, not a single one. A hand reaching across
+     * the desk registers for a frame or two, and flipping the screen out from
+     * under a child mid-choice because someone waved is worse than being a
+     * second slower to notice real paper.
+     */
+    let stable = 0
     const tick = () => {
       const video = videoRef.current
       if (cancelled || !video?.videoWidth) return
-      setDetected(detectPage(video, video.videoWidth, video.videoHeight))
+      const found = detectPage(video, video.videoWidth, video.videoHeight)
+      setDetected(found)
+
+      stable = found.quad ? stable + 1 : 0
+      if (stable >= PAGE_SETTLE_TICKS) setSawPage(true)
+      else if (!found.quad) setSawPage(false)
     }
     tick()
     const timer = setInterval(tick, 250)
@@ -218,6 +252,16 @@ export default function Capture({ student, onSwitchStudent }: Props) {
       clearInterval(timer)
     }
   }, [phase])
+
+  /*
+   * Paper appearing flips to scan; paper leaving does not flip back. Coming
+   * back is a decision — the child may be reading their Debrief, or holding the
+   * page up, or just have slid it aside — and a screen that follows the paper
+   * around would never settle.
+   */
+  useEffect(() => {
+    if (sawPage && deskMode === 'get' && phase === 'live') setDeskMode('scan')
+  }, [sawPage, deskMode, phase])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -508,6 +552,12 @@ export default function Capture({ student, onSwitchStudent }: Props) {
     setErrMsg(null)
     if (streamRef.current?.getVideoTracks()[0]?.readyState === 'live') {
       setPhase('live')
+      // Their page has been dealt with, so the desk is empty again and the
+      // next useful thing is another Card. The camera-open paths deliberately
+      // do not do this: a stream renegotiating mid-session must not bounce a
+      // child out of scanning.
+      setSawPage(false)
+      setDeskMode('get')
     } else {
       // The camera really is gone — show the setup screen while re-probing,
       // rather than leaving the previous result on screen with nothing happening.
@@ -701,19 +751,36 @@ export default function Capture({ student, onSwitchStudent }: Props) {
         </div>
       )}
 
-      {!browsing && !showingProgress && phase === 'live' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, margin: '0 0 6px' }}>
-          {/*
-            The start of the loop, above the camera controls rather than beside
-            them. A child who arrives empty-handed needs paper before anything
-            here is any use to them, and until this button existed the station
-            could read work it had no way to give out.
-          */}
+      {!browsing && !showingProgress && phase === 'live' && deskMode === 'get' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, margin: '10px 0 6px' }}>
           <GetCard student={student} onPrinted={() => setLeafRefresh((n) => n + 1)} />
+
+          {/*
+            The manual way across, for the child who is holding their page and
+            has not put it down yet — and for the times detection misses.
+          */}
+          <button type="button" style={flipBtn} onClick={() => setDeskMode('scan')}>
+            📄 I have my paper <span style={{ opacity: 0.75 }}>我有纸了</span>
+          </button>
         </div>
       )}
 
-      {!browsing && phase === 'live' && (
+      {!browsing && !showingProgress && phase === 'live' && deskMode === 'scan' && (
+        <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 4px' }}>
+          <button
+            type="button"
+            style={flipBtn}
+            onClick={() => {
+              setSawPage(false)
+              setDeskMode('get')
+            }}
+          >
+            ← Get a Card instead <span style={{ opacity: 0.75 }}>去拿练习卡</span>
+          </button>
+        </div>
+      )}
+
+      {!browsing && phase === 'live' && deskMode === 'scan' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/*
             The only thing left above the buttons is the sensor size, and it is
@@ -1013,6 +1080,18 @@ const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'co
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
 const errorCard: React.CSSProperties = { padding: 20, background: '#fff0ee', borderRadius: 12, border: '1px solid #ffc8c0', display: 'flex', flexDirection: 'column', gap: 12 }
 const bigBtn: React.CSSProperties = { padding: '14px 28px', fontSize: 16, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }
+/** The flip between the station's two jobs. Quiet — it is a way across, not the thing to do. */
+const flipBtn: React.CSSProperties = {
+  padding: '11px 22px',
+  background: '#fff',
+  border: '2px solid #d0cdc8',
+  color: '#1a1a2e',
+  borderRadius: 12,
+  fontSize: 15,
+  fontWeight: 700,
+  fontFamily: 'DM Sans, sans-serif',
+  cursor: 'pointer',
+}
 const workBtn: React.CSSProperties = { padding: '8px 16px', background: '#f0ede8', border: '1px solid #d0cdc8', color: '#1a1a2e', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const ghostBtn: React.CSSProperties = { padding: '8px 16px', background: 'none', border: '1px solid #d0cdc8', color: '#666', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const kindBtn: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '20px 8px', borderRadius: 22, border: '3px solid', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }
