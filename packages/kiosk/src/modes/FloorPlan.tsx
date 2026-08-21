@@ -33,12 +33,22 @@
  * similarly-rated players; doing that to a seven-year-old at a shared station
  * where classmates can see the screen is a different thing entirely.
  *
+ * ── Two pictures, one fetch (BHCS-88) ──
+ *
+ * The radar cannot answer "what is in there, and what comes next", because a
+ * strand axis has no inside. The map can, and it is the question a child asks
+ * out loud. So this screen is a switch between two drawings of the same
+ * response: the shape, and the building. Both obey the same rule about hollow
+ * meaning untested, and neither shows a number.
+ *
  * Never printed. The Floor plan is digital-first by policy — re-engagement is
  * not worth a Leaf.
  */
 
 import { useEffect, useState } from 'react'
 import type { Student } from '@atrium/schema'
+import BlueprintMap from './BlueprintMap'
+import type { MapEdge, MapRoom } from '../lib/blueprint-map'
 
 interface Band {
   lo: number
@@ -81,17 +91,24 @@ function pointAt(index: number, count: number, radius: number): [number, number]
 const polygon = (values: number[]) =>
   values.map((v, i) => pointAt(i, values.length, RADIUS * Math.max(0, Math.min(1, v))).join(',')).join(' ')
 
+type View = 'shape' | 'map'
+
 export default function FloorPlan({ student, onBack }: { student: Student; onBack: () => void }) {
   const [spokes, setSpokes] = useState<Spoke[] | null>(null)
+  const [rooms, setRooms] = useState<MapRoom[]>([])
+  const [edges, setEdges] = useState<MapEdge[]>([])
+  const [view, setView] = useState<View>('shape')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
     fetch(`/api/floor-plan?studentId=${encodeURIComponent(student.id)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: { spokes?: Spoke[] }) => {
+      .then((data: { spokes?: Spoke[]; kcs?: MapRoom[]; edges?: MapEdge[] }) => {
         if (!live) return
         setSpokes(data.spokes ?? [])
+        setRooms(data.kcs ?? [])
+        setEdges(data.edges ?? [])
       })
       .catch(() => live && setError('cannot reach the numbers right now'))
     return () => {
@@ -111,10 +128,38 @@ export default function FloorPlan({ student, onBack }: { student: Student; onBac
         What you know <span style={{ color: '#6b6a75' }}>你会的东西</span>
       </h1>
 
+      {/* Two drawings of one response. The switch is words rather than icons
+          because "shape" and "map" are the difference, and a pair of glyphs
+          would make a child tap both to find out which was which. */}
+      {spokes && spokes.length > 0 && rooms.length > 0 && (
+        <div style={switcher} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'shape'}
+            style={view === 'shape' ? tabOn : tabOff}
+            onClick={() => setView('shape')}
+          >
+            ⬡ My shape 我的形状
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'map'}
+            style={view === 'map' ? tabOn : tabOff}
+            onClick={() => setView('map')}
+          >
+            🗺️ The whole map 整张地图
+          </button>
+        </div>
+      )}
+
       {error && <p style={quiet}>{error}</p>}
       {!spokes && !error && <p style={quiet}>Loading… 加载中…</p>}
 
-      {spokes && spokes.length > 0 && (
+      {view === 'map' && rooms.length > 0 && <BlueprintMap rooms={rooms} edges={edges} />}
+
+      {view === 'shape' && spokes && spokes.length > 0 && (
         <>
           <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: '100%', maxWidth: 560 }} role="img"
                aria-label={`Progress across ${spokes.length} areas`}>
@@ -231,6 +276,19 @@ const bigBack: React.CSSProperties = {
 }
 const title: React.CSSProperties = { margin: 0, fontSize: 26, fontWeight: 700, color: '#1a1a2e', textAlign: 'center' }
 const quiet: React.CSSProperties = { margin: 0, fontSize: 15, color: '#6b6a75', textAlign: 'center', maxWidth: 520, lineHeight: 1.6 }
+const switcher: React.CSSProperties = { display: 'flex', gap: 8, padding: 5, borderRadius: 999, background: '#eeece7' }
+const tabBase: React.CSSProperties = {
+  padding: '9px 18px',
+  borderRadius: 999,
+  border: 'none',
+  fontSize: 15,
+  fontWeight: 700,
+  fontFamily: 'DM Sans, sans-serif',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+const tabOn: React.CSSProperties = { ...tabBase, background: '#fff', color: '#1a1a2e', boxShadow: '0 1px 3px rgba(0,0,0,0.12)' }
+const tabOff: React.CSSProperties = { ...tabBase, background: 'transparent', color: '#6b6a75' }
 const labelZh: React.CSSProperties = { fontSize: 14, fontWeight: 700 }
 const labelEn: React.CSSProperties = { fontSize: 11 }
 const legend: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '8px 22px', justifyContent: 'center', fontSize: 14, color: '#1a1a2e' }
