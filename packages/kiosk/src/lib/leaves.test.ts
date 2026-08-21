@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { earnedLine, LEAF_AMBER, LEAF_CEILING, LEAF_GREEN, leafLook, spentLine } from './leaves'
 
-const everyState = [0, 1, 2, 3, 4, 5].map(leafLook)
+const everyState = [0, 1, 2, 3, 4, 5].map((n) => leafLook(n))
 const allProse = [
   ...everyState.flatMap((l) => [l.labelEn, l.hintEn, ...l.speech.en, ...l.waysOut.map((w) => w.en)]),
   earnedLine(2).en, earnedLine(5).en, spentLine(0).en, spentLine(3).en,
@@ -109,5 +109,34 @@ describe('the moments the balance changes', () => {
     assert.match(spentLine(1).en, /1 Leaf left/)
     assert.match(spentLine(2).en, /2 Leaves left/)
     assert.match(spentLine(0).zh, /还有 0 片/)
+  })
+})
+
+describe('zero because they spent them, or zero because nobody set them up', () => {
+  // The same number, two situations, and only one is fixed by turning in a Card.
+  it('does not tell an unplaced child to hand back a Card they never had', () => {
+    const fresh = leafLook(0, false)
+    assert.ok(!fresh.hintEn.toLowerCase().includes('submit'))
+    assert.ok(!fresh.waysOut.some((w) => /turn in/i.test(w.en)))
+    assert.match(fresh.hintEn, /teacher/i)
+  })
+
+  it('still tells a child who spent them how to earn one', () => {
+    const spent = leafLook(0, true)
+    assert.match(spent.hintEn, /earn/i)
+    assert.ok(spent.waysOut.some((w) => /turn in/i.test(w.en)))
+  })
+
+  it('says the two states differently on screen and out loud', () => {
+    assert.notEqual(leafLook(0, false).labelEn, leafLook(0, true).labelEn)
+    assert.notEqual(leafLook(0, false).speech.en[0], leafLook(0, true).speech.en[0])
+  })
+
+  it('keeps the amber, because neither is a fault', () => {
+    assert.equal(leafLook(0, false).color, LEAF_AMBER)
+  })
+
+  it('assumes a placed student when nothing says otherwise', () => {
+    assert.deepEqual(leafLook(2), leafLook(2, true))
   })
 })

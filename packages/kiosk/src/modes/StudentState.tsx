@@ -52,14 +52,39 @@ interface Attempt {
 interface State {
   radar: { spokes?: Spoke[] }
   attempts: { attempts?: Attempt[] }
-  leaves: { balance?: number; lifetimeEarned?: number; lifetimeSpent?: number }
+  leaves: {
+    balance?: number
+    lifetimeEarned?: number
+    lifetimeSpent?: number
+    /** False when this child has no print state at all — never placed. */
+    bootstrapped?: boolean
+  }
 }
+
+/**
+ * Why the gate gave way (BHCS-47).
+ *
+ * A dropdown rather than free text, because a grant is the only sanctioned
+ * bypass and the distribution of reasons is the only record of how often the
+ * gate is wrong for how the room actually runs. A column of "teacher
+ * discretion" says something a pile of ungrouped grants cannot.
+ */
+const GRANT_REASONS = [
+  { id: 'make-up', label: 'Make-up work' },
+  { id: 'first-session', label: 'First session' },
+  { id: 'group-activity', label: 'Group activity' },
+  { id: 'teacher-discretion', label: 'Teacher discretion' },
+] as const
 
 export default function StudentState() {
   const [roster, setRoster] = useState<Student[]>([])
   const [studentId, setStudentId] = useState('')
   const [state, setState] = useState<State | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [reason, setReason] = useState<string>('make-up')
+  const [granting, setGranting] = useState(false)
+  const [granted, setGranted] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     fetch('/api/students')
@@ -77,7 +102,36 @@ export default function StudentState() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then(setState)
       .catch(() => setError('Could not read this student.'))
-  }, [studentId])
+  }, [studentId, reload])
+
+  async function grant() {
+    setGranting(true)
+    setGranted(null)
+    try {
+      const token = localStorage.getItem('atrium.adminToken')
+      const res = await fetch(`/api/leaf-grant?studentId=${encodeURIComponent(studentId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
+        body: JSON.stringify({
+          amount: 1,
+          reason,
+          grantedBy: localStorage.getItem('atrium.teacher') ?? 'unknown',
+        }),
+      })
+      const body = (await res.json()) as { granted?: number; balance?: number; capped?: boolean }
+      if (!res.ok) throw new Error('grant failed')
+      setGranted(
+        body.capped
+          ? `Already at the ceiling — they have ${body.balance}, which is as many as anyone can hold.`
+          : `Granted. They now have ${body.balance}.`,
+      )
+      setReload((n) => n + 1)
+    } catch {
+      setGranted('Could not grant that.')
+    } finally {
+      setGranting(false)
+    }
+  }
 
   const spokes = (state?.radar.spokes ?? []).filter((s) => s.seen || s.value > 0)
   const attempts = state?.attempts.attempts ?? []
@@ -99,11 +153,41 @@ export default function StudentState() {
 
       {state && (
         <>
+          {state.leaves.bootstrapped === false && (
+            <div style={notPlaced}>
+              <b>Not set up yet.</b> This student has never been placed, so they have no Leaves and
+              no Floor plan — which is different from having spent them. Place them on the next tab
+              and they start with two.
+            </div>
+          )}
+
           <div style={summary}>
             <Stat n={String(state.leaves.balance ?? 0)} label="Leaves now" />
             <Stat n={String(state.leaves.lifetimeSpent ?? 0)} label="Cards printed" />
             <Stat n={String(state.leaves.lifetimeEarned ?? 0)} label="Cards turned in" />
             <Stat n={`${worked.length}/${spokes.length}`} label="Areas worked" />
+          </div>
+
+          {/* Where the teacher already is when a child is standing at zero
+              asking. The ticket is explicit that this is the moment that
+              matters most, and it was the one place with no way to say yes. */}
+          <div style={grantBox}>
+            <b style={{ fontSize: 14 }}>Give them a Leaf</b>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+              <select style={select} value={reason} onChange={(e) => setReason(e.target.value)}>
+                {GRANT_REASONS.map((r) => (
+                  <option key={r.id} value={r.id}>{r.label}</option>
+                ))}
+              </select>
+              <button type="button" style={grantBtn} onClick={grant} disabled={granting}>
+                {granting ? 'Granting…' : '🌿 Grant 1 Leaf'}
+              </button>
+              {granted && <span style={{ fontSize: 13, color: '#2f6a4f' }}>{granted}</span>}
+            </div>
+            <p style={{ fontSize: 12.5, color: '#86838f', margin: '8px 0 0', lineHeight: 1.5 }}>
+              The only way past the print gate, so the reason is recorded with it. A column of
+              “teacher discretion” means the gate is wrong for how this room runs.
+            </p>
           </div>
 
           <h3 style={h3}>Where they are</h3>
@@ -181,6 +265,19 @@ function Stat({ n, label }: { n: string; label: string }) {
 const select: React.CSSProperties = {
   padding: '9px 12px', fontSize: 15, fontFamily: 'DM Sans, sans-serif',
   borderRadius: 9, border: '1px solid #d0cdc8', background: '#fff',
+}
+const notPlaced: React.CSSProperties = {
+  marginTop: 16, padding: '12px 16px', borderRadius: 10,
+  border: '1px solid #e8c98a', background: '#fff8e8',
+  fontSize: 13.5, lineHeight: 1.55, color: '#7a6a45',
+}
+const grantBox: React.CSSProperties = {
+  marginTop: 18, padding: '14px 18px', borderRadius: 12,
+  border: '1px solid #d0cdc8', background: '#fff',
+}
+const grantBtn: React.CSSProperties = {
+  padding: '9px 18px', fontSize: 14, fontWeight: 700, fontFamily: 'DM Sans, sans-serif',
+  borderRadius: 10, border: 'none', background: '#4a7c59', color: '#fff', cursor: 'pointer',
 }
 const summary: React.CSSProperties = {
   display: 'flex', gap: 34, padding: '16px 20px', marginTop: 16,
