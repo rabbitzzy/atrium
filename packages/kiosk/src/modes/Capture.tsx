@@ -45,6 +45,16 @@ type Phase = 'setup' | 'live' | 'focusing' | 'uploading' | 'done' | 'error'
 const PAGE_SETTLE_TICKS = 6
 
 /**
+ * And about four seconds of empty desk before going back.
+ *
+ * Deliberately slower than arriving. A page is picked up to be turned over, to
+ * be read, to have a pencil found; flipping the screen the moment it leaves the
+ * frame would make the station twitch every time a child moves. Arriving is a
+ * clear signal, leaving is an ambiguous one, and the thresholds say so.
+ */
+const PAGE_GONE_TICKS = 16
+
+/**
  * Camera discovery is its own state machine. Collapsing these into "no
  * cameras listed" leaves an operator staring at an empty dropdown and a dead
  * button with nothing to act on — each case has a different fix.
@@ -150,6 +160,8 @@ export default function Capture({ student, onSwitchStudent }: Props) {
   const [deskMode, setDeskMode] = useState<'get' | 'scan'>('get')
   /** Whether a page has been sitting under the camera long enough to mean it. */
   const [sawPage, setSawPage] = useState(false)
+  /** Set when the child asked for scan mode, so an empty desk does not undo it. */
+  const [choseScan, setChoseScan] = useState(false)
   /**
    * Whether the stream has painted a frame — not whether it has been opened.
    *
@@ -198,10 +210,11 @@ export default function Capture({ student, onSwitchStudent }: Props) {
    */
   const showStage =
     !browsing &&
-    // Hidden while fetching paper, though the stream stays live underneath:
-    // detection needs it, and tearing it down restarts the autofocus hunt that
-    // BHCS-9 spent a week on.
-    (deskMode === 'scan' || phase !== 'live') &&
+    // Scan mode only. The stream still comes up behind the doors — detection
+    // needs it, and tearing it down restarts the autofocus hunt BHCS-9 spent a
+    // week on — but a child choosing a subject should not be watching a camera
+    // announce that it is waking up. That message is for whoever is scanning.
+    deskMode === 'scan' &&
     (phase === 'live' ||
       phase === 'focusing' ||
       (phase === 'setup' && (camState === 'probing' || camState === 'ready')))
@@ -235,15 +248,22 @@ export default function Capture({ student, onSwitchStudent }: Props) {
      * second slower to notice real paper.
      */
     let stable = 0
+    let absent = 0
     const tick = () => {
       const video = videoRef.current
       if (cancelled || !video?.videoWidth) return
       const found = detectPage(video, video.videoWidth, video.videoHeight)
       setDetected(found)
 
-      stable = found.quad ? stable + 1 : 0
-      if (stable >= PAGE_SETTLE_TICKS) setSawPage(true)
-      else if (!found.quad) setSawPage(false)
+      if (found.quad) {
+        absent = 0
+        stable += 1
+        if (stable >= PAGE_SETTLE_TICKS) setSawPage(true)
+      } else {
+        stable = 0
+        absent += 1
+        if (absent >= PAGE_GONE_TICKS) setSawPage(false)
+      }
     }
     tick()
     const timer = setInterval(tick, 250)
@@ -254,14 +274,23 @@ export default function Capture({ student, onSwitchStudent }: Props) {
   }, [phase])
 
   /*
-   * Paper appearing flips to scan; paper leaving does not flip back. Coming
-   * back is a decision — the child may be reading their Debrief, or holding the
-   * page up, or just have slid it aside — and a screen that follows the paper
-   * around would never settle.
+   * Paper appearing flips to scan, and an empty desk flips back — four seconds
+   * later, because leaving is the ambiguous half of the signal.
+   *
+   * The exception is a child who pressed the button themselves. They are
+   * fetching the page out of a bag, and returning them to the doors while they
+   * do it would be the station arguing with them. Their choice stands until a
+   * page has actually been seen once, after which the desk speaks for itself.
    */
   useEffect(() => {
-    if (sawPage && deskMode === 'get' && phase === 'live') setDeskMode('scan')
-  }, [sawPage, deskMode, phase])
+    if (phase !== 'live') return
+    if (sawPage) {
+      setChoseScan(false)
+      if (deskMode === 'get') setDeskMode('scan')
+    } else if (deskMode === 'scan' && !choseScan) {
+      setDeskMode('get')
+    }
+  }, [sawPage, deskMode, phase, choseScan])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -753,30 +782,33 @@ export default function Capture({ student, onSwitchStudent }: Props) {
 
       {!browsing && !showingProgress && phase === 'live' && deskMode === 'get' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, margin: '10px 0 6px' }}>
-          <GetCard student={student} onPrinted={() => setLeafRefresh((n) => n + 1)} />
+          <GetCard
+            student={student}
+            onPrinted={() => setLeafRefresh((n) => n + 1)}
+            /*
+              Beside the doors rather than under them, behind a rule: it is the
+              same question — what now — and the separator says this answer is a
+              different kind from the four to its left.
 
-          {/*
-            The manual way across, for the child who is holding their page and
-            has not put it down yet — and for the times detection misses.
-          */}
-          <button type="button" style={flipBtn} onClick={() => setDeskMode('scan')}>
-            📄 I have my paper <span style={{ opacity: 0.75 }}>我有纸了</span>
-          </button>
-        </div>
-      )}
-
-      {!browsing && !showingProgress && phase === 'live' && deskMode === 'scan' && (
-        <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 4px' }}>
-          <button
-            type="button"
-            style={flipBtn}
-            onClick={() => {
-              setSawPage(false)
-              setDeskMode('get')
-            }}
-          >
-            ← Get a Card instead <span style={{ opacity: 0.75 }}>去拿练习卡</span>
-          </button>
+              "Show you" rather than "I have paper", because a drawing and a
+              chess sheet are not paper the station gave out, and a child
+              bringing one is not reporting an inventory.
+            */
+            trailing={
+              <button
+                type="button"
+                style={flipBtn}
+                onClick={() => {
+                  setChoseScan(true)
+                  setDeskMode('scan')
+                }}
+              >
+                <span style={{ fontSize: 26 }} aria-hidden>📄</span>
+                <span>I want to show you</span>
+                <span style={{ fontSize: 13.5, opacity: 0.75, fontWeight: 600 }}>我要给你看</span>
+              </button>
+            }
+          />
         </div>
       )}
 
@@ -842,9 +874,7 @@ export default function Capture({ student, onSwitchStudent }: Props) {
             who reads it and finds someone else's name has the fix under their
             finger already.
           */}
-          <SavingAs student={student} onSwitch={onSwitchStudent} />
-
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', justifyContent: 'center' }}>
             {APPS.map((a) => {
               const theme = a.theme ?? NEUTRAL_THEME
               return (
@@ -869,7 +899,36 @@ export default function Capture({ student, onSwitchStudent }: Props) {
                 </button>
               )
             })}
+
+            {/*
+              The way out, on the side of the row it belongs to. What is being
+              scanned and whether to scan at all are the same decision, and the
+              rule is what keeps "leave" from reading as a fourth kind of paper.
+            */}
+            <div style={vRule} aria-hidden />
+            <button
+              type="button"
+              style={{ ...kindBtn, ...leaveBtn }}
+              onClick={() => {
+                setSawPage(false)
+                setChoseScan(false)
+                setDeskMode('get')
+              }}
+            >
+              <span style={{ fontSize: 40, lineHeight: 1 }}>🌿</span>
+              <span style={{ fontWeight: 700, fontSize: 17, color: '#1a1a2e' }}>Get worksheet</span>
+              <span style={{ fontSize: 14, color: '#4a7c59', fontWeight: 600 }}>去拿练习卡</span>
+            </button>
           </div>
+
+          {/*
+            Below the buttons now rather than above them. It still has to be
+            here — pressing one of those is the moment a capture gets a name
+            attached (BHCS-18) — but the options are what a child is looking
+            for, and a line of text above them was standing in the way of the
+            thing they came to press.
+          */}
+          <SavingAs student={student} onSwitch={onSwitchStudent} />
 
           {/*
             `blurb` is gone from the button on purpose. "Graded against a
@@ -1080,17 +1139,38 @@ const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'co
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
 const errorCard: React.CSSProperties = { padding: 20, background: '#fff0ee', borderRadius: 12, border: '1px solid #ffc8c0', display: 'flex', flexDirection: 'column', gap: 12 }
 const bigBtn: React.CSSProperties = { padding: '14px 28px', fontSize: 16, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }
-/** The flip between the station's two jobs. Quiet — it is a way across, not the thing to do. */
+/**
+ * The way out of get mode. Shaped like a door so it sits in the row as a peer,
+ * toned down so it does not compete with the four things a child came to choose
+ * between — the rule beside it is what says it is a different kind of answer.
+ */
 const flipBtn: React.CSSProperties = {
-  padding: '11px 22px',
-  background: '#fff',
-  border: '2px solid #d0cdc8',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 3,
+  padding: '16px 14px',
+  minWidth: 116,
+  background: '#f4f8f5',
+  border: '2px solid #bcd3c3',
   color: '#1a1a2e',
-  borderRadius: 12,
-  fontSize: 15,
+  borderRadius: 18,
+  fontSize: 18,
   fontWeight: 700,
   fontFamily: 'DM Sans, sans-serif',
   cursor: 'pointer',
+}
+/** The rule between "what am I scanning" and "actually, take me back". */
+const vRule: React.CSSProperties = {
+  width: 1,
+  alignSelf: 'stretch',
+  background: '#d0cdc8',
+  margin: '4px 4px',
+}
+/** Same shape as a kind button, quieter, so it reads as a peer and not a fourth kind. */
+const leaveBtn: React.CSSProperties = {
+  background: '#f4f8f5',
+  borderColor: '#bcd3c3',
 }
 const workBtn: React.CSSProperties = { padding: '8px 16px', background: '#f0ede8', border: '1px solid #d0cdc8', color: '#1a1a2e', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const ghostBtn: React.CSSProperties = { padding: '8px 16px', background: 'none', border: '1px solid #d0cdc8', color: '#666', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
