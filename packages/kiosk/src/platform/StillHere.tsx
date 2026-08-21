@@ -30,6 +30,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { presenceAfter, type Presence } from '../lib/presence'
+import { isBusy } from '../lib/busy'
 import { stopSpeaking } from '../lib/speech'
 
 /**
@@ -41,8 +42,22 @@ import { stopSpeaking } from '../lib/speech'
  * to produce, and a timer that cannot see it would end exactly the visits it
  * should protect. `scroll` is listened for in the capture phase because it does
  * not bubble from a scrolling element.
+ *
+ * `pointermove` was added after a session ended under someone who was very
+ * much there — moving around the screen, reading it, deciding what to press.
+ * On the kiosk's own touchscreen it fires only during a touch and changes
+ * nothing; on the laptop the station is developed and demonstrated on it is the
+ * difference between "nobody is here" and "nobody has committed yet". It costs
+ * a ref write per event and no render.
  */
-const ACTIVITY = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'] as const
+const ACTIVITY = [
+  'pointerdown',
+  'pointermove',
+  'keydown',
+  'wheel',
+  'touchstart',
+  'touchmove',
+] as const
 
 /** How often the clock is read. One second, because the card counts in seconds. */
 const TICK_MS = 1000
@@ -80,6 +95,22 @@ function usePresence(): { presence: Presence; bump: () => void } {
     window.addEventListener('scroll', seen, { capture: true, passive: true })
 
     const timer = setInterval(() => {
+      /*
+       * A declared wait is presence (`lib/busy.ts`). A child watching the
+       * station write their worksheet is not touching anything because there
+       * is nothing to touch, and asking them whether they are still here is
+       * the station accusing them of leaving while they wait for it.
+       *
+       * The clock is not paused but reset, so the four minutes start again
+       * when the work lands — which is the honest reading, because the first
+       * thing anyone does with a finished Card is read it.
+       */
+      if (isBusy()) {
+        lastActive.current = Date.now()
+        setPresence((prev) => (prev.state === 'here' ? prev : { state: 'here' }))
+        return
+      }
+
       const next = presenceAfter(Date.now() - lastActive.current)
       // Same state, same second: skip the render. While someone is working
       // this is every tick, which is the common case by a wide margin.

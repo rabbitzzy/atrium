@@ -29,7 +29,9 @@
 import { useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
+import { beginBusy } from '../lib/busy'
 import SimulateCard from './SimulateCard'
+import Preparing from './Preparing'
 
 /**
  * Four doors, all the same size.
@@ -64,7 +66,8 @@ const DOORS = [
 
 type Outcome =
   | { kind: 'idle' }
-  | { kind: 'working' }
+  /** Carries the door they pressed, so the wait can name it back to them. */
+  | { kind: 'working'; subject?: string }
   | { kind: 'printed'; leavesLeft: number }
   | { kind: 'preview'; taskId: string; html: string; leavesLeft: number }
   | { kind: 'nothing-in-subject'; subject: string }
@@ -88,7 +91,15 @@ export default function GetCard({
   const simulate = localStorage.getItem('atrium.simulate') === 'on'
 
   async function ask(subject?: string) {
-    setState({ kind: 'working' })
+    setState(subject ? { kind: 'working', subject } : { kind: 'working' })
+    /*
+     * The whole request is a declared wait (`lib/busy.ts`). Without it a
+     * generation slow enough to cross four minutes — a stalled model call, a
+     * printer queued behind another child's job — lets the idle timer ask
+     * "still here?" and then end the visit, while the request is still running
+     * and about to spend a Leaf on a student the station has forgotten.
+     */
+    const done = beginBusy()
     try {
       const res = await fetch('/api/card', {
         method: 'POST',
@@ -142,6 +153,8 @@ export default function GetCard({
       setState(body.spentLeaf ? { kind: 'spent-and-lost' } : { kind: 'no-paper' })
     } catch {
       setState({ kind: 'no-paper' })
+    } finally {
+      done()
     }
   }
 
@@ -163,6 +176,14 @@ export default function GetCard({
   if (state.kind === 'idle' || state.kind === 'working') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        {/*
+          Over everything, not merely disabling these four. The header still
+          offers My work, What I know and the name chip during a wait, and the
+          last of those ends the visit outright while the request keeps running.
+        */}
+        {state.kind === 'working' && (
+          <Preparing {...(state.subject ? { subject: state.subject } : {})} simulate={simulate} />
+        )}
         <div style={{ fontSize: 15, fontWeight: 600, color: '#5a5a6a' }}>
           What shall we work on? <span style={{ opacity: 0.75 }}>今天做什么？</span>
         </div>
@@ -187,12 +208,6 @@ export default function GetCard({
             </>
           )}
         </div>
-
-        {state.kind === 'working' && (
-          <span style={{ fontSize: 15, color: '#4a7c59', fontWeight: 600 }}>
-            Getting your Card… <span style={{ opacity: 0.75 }}>正在准备…</span>
-          </span>
-        )}
 
         {simulate && (
           <span style={{ fontSize: 12, color: '#8a7a45' }}>
