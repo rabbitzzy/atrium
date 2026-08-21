@@ -27,6 +27,7 @@ import WaitChat from '../platform/WaitChat'
 import CameraStage from '../platform/CameraStage'
 import { SpokenDebrief } from '../platform/ReadAloud'
 import { SavingAs, WhoChip } from '../platform/StillHere'
+import { beginBusy } from '../lib/busy'
 import MyWork from './MyWork'
 import { readCardIdentity } from '../lib/card-scan'
 import { chooseDeskMode, nextDeskState, type DeskMode } from '../lib/desk-mode'
@@ -509,6 +510,11 @@ export default function Capture({ student, onSwitchStudent }: Props) {
     // a threshold that refuses real work is worse than a soft image.
     setSoftFocus(frame.focus.chosen < FOCUS_WARN_BELOW ? frame.focus.chosen : null)
 
+    // Grading is a declared wait, for the same reason making a Card is: the
+    // child is standing here watching, touching nothing, and a model call slow
+    // enough to cross four minutes would otherwise end their visit while their
+    // own page is being read (`lib/busy.ts`).
+    const doneWaiting = beginBusy()
     try {
       const res = await fetch('/api/capture', {
         method: 'POST',
@@ -554,6 +560,8 @@ export default function Capture({ student, onSwitchStudent }: Props) {
     } catch (err) {
       setErrMsg((err as Error).message)
       setPhase('error')
+    } finally {
+      doneWaiting()
     }
   }
 
