@@ -172,10 +172,26 @@ export default function StillHere({
 export function WhoChip({ student, onSwitch }: { student: Student; onSwitch: () => void }) {
   return (
     <button onClick={onSwitch} style={whoChip} aria-label={`Working as ${student.name}. Tap to switch student.`}>
-      <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e', lineHeight: 1.2 }}>
+      {/* Both lines nowrap: at header width these were breaking as "Not Arthur?
+          换 人", and a two-character word split down the middle reads as a
+          rendering fault rather than as a tight fit. A long name ellipsises
+          instead — it is still recognisably theirs, and the second line still
+          says the first name in full. */}
+      <span
+        style={{
+          fontSize: 15,
+          fontWeight: 700,
+          color: '#1a1a2e',
+          lineHeight: 1.2,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: '100%',
+        }}
+      >
         👋 {student.name}
       </span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: '#7a8f84' }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#7a8f84', whiteSpace: 'nowrap' }}>
         Not {firstName(student)}? 换人
       </span>
     </button>
@@ -211,5 +227,5 @@ const card: React.CSSProperties = { background: '#fff', borderRadius: 24, paddin
 const nameChip: React.CSSProperties = { padding: '10px 22px', borderRadius: 999, background: '#f0ede8', fontSize: 24, fontWeight: 700, color: '#1a1a2e', maxWidth: '100%', overflowWrap: 'anywhere' }
 const stayBtn: React.CSSProperties = { padding: '18px 24px', fontSize: 19, fontWeight: 700, fontFamily: 'DM Sans, sans-serif', borderRadius: 14, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }
 const switchBtn: React.CSSProperties = { padding: '16px 24px', fontSize: 17, fontWeight: 700, fontFamily: 'DM Sans, sans-serif', borderRadius: 14, border: '2px solid #d0cdc8', background: '#fff', color: '#1a1a2e', cursor: 'pointer', width: '100%' }
-const whoChip: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '8px 16px', borderRadius: 12, border: '2px solid #d8e2db', background: '#f4f8f5', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textAlign: 'left', maxWidth: 240 }
+const whoChip: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, padding: '6px 12px', borderRadius: 12, border: '2px solid #d8e2db', background: '#f4f8f5', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textAlign: 'left', maxWidth: 200, minWidth: 0, overflow: 'hidden' }
 const savingAs: React.CSSProperties = { alignSelf: 'center', padding: '8px 18px', borderRadius: 999, border: '1px solid #e0ddd8', background: '#faf9f7', color: '#7a7a7a', fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }

@@ -637,8 +637,25 @@ export default function Capture({ student, onSwitchStudent }: Props) {
         .kind-btn:active { transform: translateY(1px); box-shadow: none; }
       `}</style>
 
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 20 }}>Capture 拍摄</div>
+      {/*
+        Everything here is nowrap and smaller than it was. The header grew a
+        Leaf count and a name chip and started breaking its own labels across
+        lines — "My work 我的作 品", a name split from its surname — which is
+        worse than any of it being small, because a word broken mid-character is
+        read as a fault rather than as a tight fit.
+      */}
+      <header
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'nowrap',
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap', flex: 'none' }}>
+          Capture <span style={{ opacity: 0.6, fontWeight: 600 }}>拍摄</span>
+        </div>
         {/*
           Two ways out of the camera, in the order they are wanted: their own
           work, then the end of the visit. Present on every phase of every
@@ -653,7 +670,7 @@ export default function Capture({ student, onSwitchStudent }: Props) {
           same thing to the student who has just arrived, at a size they can
           read, and one tap gets them their own session.
         */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0 }}>
           {!browsing && !showingProgress && (
             <>
               <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
@@ -1049,14 +1066,43 @@ export default function Capture({ student, onSwitchStudent }: Props) {
               top 60px and saves every student the search.
             */}
             {/*
-              One button, not two. Checking out already lives in the header of
-              every screen here, and a second copy of it beside the big one
-              gave a child two ways to end their visit and one to keep going —
-              on the screen where keeping going is the whole point.
+              Two ways on, because the station now has two halves and a child
+              who has just handed something in genuinely might want either. The
+              old single button assumed the answer was always "another picture",
+              which was true when scanning was all this screen could lead to.
+
+              Still not a third button for ending the visit — that lives in the
+              header of every screen, and putting a copy here would give a child
+              two ways to stop and one to keep going, on the screen where
+              keeping going is the point.
             */}
-            <button onClick={again} style={bigBtn}>
-              📸 Show me another! 再来一张
-            </button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  again()
+                  const next = chooseDeskMode('scan')
+                  setPinned(next.pinned)
+                  setDeskMode(next.mode)
+                }}
+                style={bigBtn}
+              >
+                📸 Show me another! 再来一张
+              </button>
+              <button
+                onClick={() => {
+                  // `again()` already resets to the doors; the pin makes that
+                  // stick while the page they just handed in is still on the
+                  // desk, which is exactly the case here.
+                  again()
+                  const next = chooseDeskMode('get')
+                  setPinned(next.pinned)
+                  setDeskMode(next.mode)
+                }}
+                style={{ ...bigBtn, background: '#f4f8f5', color: '#1a1a2e', border: '2px solid #4a7c59' }}
+              >
+                🌿 Get new paper 拿新的纸
+              </button>
+            </div>
             {/*
               At the top of the Debrief, not the bottom of it. The student this
               is for cannot read a word of what follows, so a control placed
@@ -1188,7 +1234,7 @@ const leaveBtn: React.CSSProperties = {
   background: '#f4f8f5',
   borderColor: '#bcd3c3',
 }
-const workBtn: React.CSSProperties = { padding: '8px 16px', background: '#f0ede8', border: '1px solid #d0cdc8', color: '#1a1a2e', borderRadius: 8, fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
+const workBtn: React.CSSProperties = { padding: '6px 12px', background: '#f0ede8', border: '1px solid #d0cdc8', color: '#1a1a2e', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none' }
 const ghostBtn: React.CSSProperties = { padding: '8px 16px', background: 'none', border: '1px solid #d0cdc8', color: '#666', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', cursor: 'pointer' }
 const kindBtn: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '20px 8px', borderRadius: 22, border: '3px solid', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }
 
