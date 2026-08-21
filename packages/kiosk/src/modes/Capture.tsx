@@ -29,6 +29,7 @@ import { SpokenDebrief } from '../platform/ReadAloud'
 import { SavingAs, WhoChip } from '../platform/StillHere'
 import MyWork from './MyWork'
 import { readCardIdentity } from '../lib/card-scan'
+import { chooseDeskMode, nextDeskState, type DeskMode } from '../lib/desk-mode'
 import LeafCount from '../platform/LeafCount'
 import GetCard from './GetCard'
 import FloorPlan from './FloorPlan'
@@ -157,11 +158,23 @@ export default function Capture({ student, onSwitchStudent }: Props) {
    * directions — a page detected is strong evidence, not proof, and the way
    * back must never be more than one button.
    */
-  const [deskMode, setDeskMode] = useState<'get' | 'scan'>('get')
+  const [deskMode, setDeskMode] = useState<DeskMode>('get')
   /** Whether a page has been sitting under the camera long enough to mean it. */
   const [sawPage, setSawPage] = useState(false)
-  /** Set when the child asked for scan mode, so an empty desk does not undo it. */
-  const [choseScan, setChoseScan] = useState(false)
+  /**
+   * The mode the child asked for, held until the desk agrees with them.
+   *
+   * Both directions need this and only one had it. Pressing "Get worksheet"
+   * while the page is still lying there flipped to the doors and then straight
+   * back, because detection saw the same page a second later and did what it is
+   * supposed to do — so the button looked broken. Pressing "I want to show you"
+   * with an empty desk had the same problem in reverse.
+   *
+   * A pin is cleared by the desk catching up rather than by a timer: take the
+   * page away and the doors stop being a held choice and start being the
+   * obvious one, at which point automatic behaviour can have the wheel back.
+   */
+  const [pinned, setPinned] = useState<DeskMode | null>(null)
   /**
    * Whether the stream has painted a frame — not whether it has been opened.
    *
@@ -274,23 +287,20 @@ export default function Capture({ student, onSwitchStudent }: Props) {
   }, [phase])
 
   /*
-   * Paper appearing flips to scan, and an empty desk flips back — four seconds
-   * later, because leaving is the ambiguous half of the signal.
+   * Paper appearing means scan, an empty desk means get — unless the child has
+   * said otherwise, in which case they win until the desk agrees with them.
    *
-   * The exception is a child who pressed the button themselves. They are
-   * fetching the page out of a bag, and returning them to the doors while they
-   * do it would be the station arguing with them. Their choice stands until a
-   * page has actually been seen once, after which the desk speaks for itself.
+   * The station never argues with a button that was just pressed. That is the
+   * whole rule, and it is worth stating as one because both halves of it were
+   * bugs: a held mode that automatic detection could overturn a second later is
+   * indistinguishable, from the front, from a control that does not work.
    */
   useEffect(() => {
     if (phase !== 'live') return
-    if (sawPage) {
-      setChoseScan(false)
-      if (deskMode === 'get') setDeskMode('scan')
-    } else if (deskMode === 'scan' && !choseScan) {
-      setDeskMode('get')
-    }
-  }, [sawPage, deskMode, phase, choseScan])
+    const next = nextDeskState({ mode: deskMode, pinned }, sawPage)
+    if (next.mode !== deskMode) setDeskMode(next.mode)
+    if (next.pinned !== pinned) setPinned(next.pinned)
+  }, [sawPage, deskMode, phase, pinned])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -586,6 +596,7 @@ export default function Capture({ student, onSwitchStudent }: Props) {
       // do not do this: a stream renegotiating mid-session must not bounce a
       // child out of scanning.
       setSawPage(false)
+      setPinned(null)
       setDeskMode('get')
     } else {
       // The camera really is gone — show the setup screen while re-probing,
@@ -799,8 +810,9 @@ export default function Capture({ student, onSwitchStudent }: Props) {
                 type="button"
                 style={flipBtn}
                 onClick={() => {
-                  setChoseScan(true)
-                  setDeskMode('scan')
+                  const next = chooseDeskMode('scan')
+                  setPinned(next.pinned)
+                  setDeskMode(next.mode)
                 }}
               >
                 <span style={{ fontSize: 26 }} aria-hidden>📄</span>
@@ -910,9 +922,13 @@ export default function Capture({ student, onSwitchStudent }: Props) {
               type="button"
               style={{ ...kindBtn, ...leaveBtn }}
               onClick={() => {
-                setSawPage(false)
-                setChoseScan(false)
-                setDeskMode('get')
+                // Not `setSawPage(false)` — the page is very likely still lying
+                // there, and lying to the detector about it is what made this
+                // button flip back a second later. Pin the choice instead and
+                // let the desk report whatever is true.
+                const next = chooseDeskMode('get')
+                setPinned(next.pinned)
+                setDeskMode(next.mode)
               }}
             >
               <span style={{ fontSize: 40, lineHeight: 1 }}>🌿</span>
