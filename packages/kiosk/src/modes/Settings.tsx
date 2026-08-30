@@ -13,15 +13,13 @@
 
 import { useEffect, useState } from 'react'
 import type { Student } from '@atrium/schema'
-import { adminHeader, adminToken, setAdminToken } from '../lib/admin'
+import { adminHeader } from '../lib/admin'
 
 export default function Settings() {
   const [on, setOn] = useState(() => localStorage.getItem('atrium.simulate') === 'on')
   const [roster, setRoster] = useState<Student[]>([])
   const [clearing, setClearing] = useState('')
   const [cleared, setCleared] = useState<string | null>(null)
-  const [token, setToken] = useState(() => adminToken())
-  const [tokenSaved, setTokenSaved] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/students')
@@ -51,48 +49,8 @@ export default function Settings() {
     setClearing('')
   }
 
-  function saveToken() {
-    setAdminToken(token.trim())
-    setTokenSaved(
-      token.trim()
-        ? 'Saved on this machine.'
-        : 'Cleared. The teacher and admin screens will stop loading.',
-    )
-  }
-
   return (
     <div style={{ maxWidth: 620 }}>
-      {/*
-        First, because without it the teacher and admin screens answer "Admin
-        token required" and nothing on screen says where the token goes. It used
-        to be a console command — a fine thing to ask of whoever deployed the
-        station, and a bad one to ask of a teacher whose browser has forgotten.
-      */}
-      <div style={card}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>Admin token</div>
-        <p style={p}>
-          Unlocks the teacher and admin screens on this machine. It is the value of
-          ADMIN_TOKEN on the deployment; ask whoever set the station up. Stored in this
-          browser only, so each machine needs it once.
-        </p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => {
-              setToken(e.target.value)
-              setTokenSaved(null)
-            }}
-            placeholder="paste the token"
-            style={tokenInput}
-          />
-          <button type="button" style={toggleBtn} onClick={saveToken}>
-            Save
-          </button>
-        </div>
-        {tokenSaved && <p style={{ ...p, color: '#4a7c59' }}>{tokenSaved}</p>}
-      </div>
-
       <div style={{ ...card, borderColor: on ? '#c8963e' : '#d0cdc8' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button type="button" style={{ ...toggleBtn, background: on ? '#c8963e' : '#fff', color: on ? '#fff' : '#1a1a2e' }} onClick={toggle}>
@@ -145,15 +103,6 @@ const toggleBtn: React.CSSProperties = {
 }
 const p: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.6, color: '#5a5a6a', margin: '10px 0 0' }
 
-const tokenInput: React.CSSProperties = {
-  flex: 1,
-  padding: '9px 12px',
-  fontSize: 14,
-  fontFamily: 'inherit',
-  border: '1px solid #d0cdc8',
-  borderRadius: 8,
-  background: '#fff',
-}
 const select: React.CSSProperties = {
   padding: '9px 12px', fontSize: 15, fontFamily: 'DM Sans, sans-serif',
   borderRadius: 9, border: '1px solid #d0cdc8', background: '#fff',
