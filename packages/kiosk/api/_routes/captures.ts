@@ -8,8 +8,9 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { requireAdmin } from '../_lib/admin.js'
-import { atrium } from '../_lib/db.js'
+import { atrium, rows } from '../_lib/db.js'
 import { APP_IDS } from '../_lib/registry.js'
+import { servableUrl } from '../_lib/storage.js'
 
 const MAX_LIMIT = 200
 
@@ -33,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let query = atrium()
       .from('captures')
       .select(
-        'id, student_id, student_name, kind, storage_backend, storage_url, crop_json, ocr_json, ocr_status, ocr_error, ocr_ms, refined_json, refined_status, refined_error, captured_at',
+        'id, student_id, student_name, kind, storage_backend, storage_id, storage_url, crop_json, ocr_json, ocr_status, ocr_error, ocr_ms, refined_json, refined_status, refined_error, captured_at',
       )
       .order('captured_at', { ascending: false })
       .limit(limit)
@@ -44,7 +45,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await query
     if (error) throw new Error(error.message)
 
-    return res.status(200).json({ captures: data ?? [] })
+    /*
+     * The gallery puts `storage_url` straight into an `<img>`, and for Drive
+     * the stored value is a webViewLink — a page, not a picture. Rewriting here
+     * fixes the rows already in the table without a migration.
+     */
+    type Row = { storage_url: string; storage_id?: string | null }
+    const captures = rows<Row>(data).map((c) => ({
+      ...c,
+      storage_url: servableUrl(c.storage_url, c.storage_id ?? null),
+    }))
+    return res.status(200).json({ captures })
   } catch (err) {
     return res.status(500).json({ error: (err as Error).message })
   }

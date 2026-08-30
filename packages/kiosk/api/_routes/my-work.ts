@@ -34,6 +34,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { atrium, rows } from '../_lib/db.js'
+import { servableUrl } from '../_lib/storage.js'
 
 /** A term's worth of visits, and enough to fill a scrolling grid many times. */
 const LIMIT = 120
@@ -65,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       captures: rows<CaptureRow>(data).map((r) => ({
         id: r.id,
         kind: r.kind,
-        fileUrl: r.storage_url,
+        fileUrl: servableUrl(r.storage_url),
         capturedAt: r.captured_at,
       })),
     })
@@ -101,7 +102,7 @@ async function one(res: VercelResponse, studentId: string, id: string) {
       capture: {
         id: data.id as string,
         kind: data.kind as string,
-        fileUrl: data.storage_url as string,
+        fileUrl: servableUrl(data.storage_url as string),
         capturedAt: data.captured_at as string,
         ocrStatus: data.ocr_status as string,
         ocrError: (data.ocr_error as string | null) ?? null,
