@@ -6,11 +6,9 @@ export default defineConfig({
   plugins: [react(), devApi()],
   server: {
     port: 5173,
-    // devApi() handles anything with a matching file in api/. These proxies
-    // cover the standalone services that are still separate processes.
-    proxy: {
-      '/api/skill-graph': { target: 'http://localhost:3001', rewrite: (p) => p.replace('/api/skill-graph', '') },
-      '/api/worksheet':   { target: 'http://localhost:3002', rewrite: (p) => p.replace('/api/worksheet', '') },
-    },
+    // No proxies. skill-graph and worksheet-print are mounted inside the api
+    // entry point now, so devApi() serves them along with everything else —
+    // proxying them to ports nothing listens on is how local dev started
+    // disagreeing with production in the first place.
   },
 })
