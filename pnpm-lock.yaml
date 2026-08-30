@@ -120,9 +120,15 @@ importers:
       '@atrium/schema':
         specifier: workspace:*
         version: link:../schema
+      '@atrium/skill-graph':
+        specifier: workspace:*
+        version: link:../skill-graph
       '@supabase/supabase-js':
         specifier: ^2.45.0
         version: 2.105.1
+      hono:
+        specifier: ^4.5.0
+        version: 4.12.16
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
