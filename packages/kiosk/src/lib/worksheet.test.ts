@@ -4,10 +4,8 @@ import {
   generateCard,
   InsufficientLeaves,
   NoRoomToAssign,
-  previewCard,
   WorksheetRefused,
   WorksheetUnreachable,
-  worksheetUrl,
 } from './worksheet'
 
 const realFetch = globalThis.fetch
@@ -24,42 +22,35 @@ function unreachable() {
   globalThis.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof fetch
 }
 
-/** What worksheet-print actually answers with: a PDF body, counts in headers. */
-function cardResponse(rooms: string, leaves: string) {
-  return new Response(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), {
-    status: 200,
-    headers: { 'content-type': 'application/pdf', 'x-atrium-rooms': rooms, 'x-atrium-leaves': leaves },
-  })
+/** What worksheet-print answers with: the Card as markup, and what it cost. */
+function cardResponse(rooms: string[], leaves: number) {
+  return Response.json({ taskId: 't1', html: '<html>card</html>', rooms, leavesLeft: leaves })
 }
-
-describe('where the worksheet service is', () => {
-  test('falls back to loopback when the station has no storage', () => {
-    assert.equal(worksheetUrl(), 'http://127.0.0.1:3002')
-  })
-})
 
 describe('generating a Card', () => {
   const args = { studentId: 's1', taskId: 't1' }
 
-  test('returns the PDF and what it cost', async () => {
-    service(() => cardResponse('math/ops/add-2digit,lang/en/phonics/cvc-words', '3'))
+  test('returns the Card and what it cost', async () => {
+    service(() => cardResponse(['math/ops/add-2digit', 'lang/en/phonics/cvc-words'], 3))
     const card = await generateCard(args)
     assert.equal(card.taskId, 't1')
     assert.equal(card.leavesLeft, 3)
     assert.deepEqual(card.rooms, ['math/ops/add-2digit', 'lang/en/phonics/cvc-words'])
-    assert.equal(await card.pdf.text(), '%PDF')
+    assert.equal(card.html, '<html>card</html>')
   })
 
-  test('a Card with no rooms header is empty, not [""]', async () => {
-    service(() => new Response(new Blob(['x']), { status: 200 }))
-    assert.deepEqual((await generateCard(args)).rooms, [])
+  test('a Card that names no rooms is empty, not undefined', async () => {
+    service(() => Response.json({ taskId: 't1', html: '<html></html>' }))
+    const card = await generateCard(args)
+    assert.deepEqual(card.rooms, [])
+    assert.equal(card.leavesLeft, 0)
   })
 
   test('passes the subject only when a door was pressed', async () => {
     let sent: Record<string, unknown> = {}
     service((_u, init) => {
       sent = JSON.parse(String(init?.body))
-      return cardResponse('r', '1')
+      return cardResponse(['r'], 1)
     })
 
     await generateCard(args)
@@ -107,26 +98,3 @@ describe('generating a Card', () => {
   })
 })
 
-describe('rehearsing a Card', () => {
-  const args = { studentId: 's1', taskId: 't1' }
-
-  test('asks for a preview and returns the markup', async () => {
-    let sent: Record<string, unknown> = {}
-    service((_u, init) => {
-      sent = JSON.parse(String(init?.body))
-      return Response.json({ taskId: 't1', html: '<h1>Card</h1>', rooms: ['math/ops'], leavesLeft: 2 })
-    })
-
-    const card = await previewCard(args)
-    assert.equal(sent['preview'], true)
-    assert.equal(card.html, '<h1>Card</h1>')
-    assert.deepEqual(card.rooms, ['math/ops'])
-    assert.equal(card.leavesLeft, 2)
-  })
-
-  test('a rehearsal at zero Leaves is refused like any other', async () => {
-    // A rehearsal exercises the economy rather than sidestepping it.
-    service(() => Response.json({ error: 'insufficient_leaves', balance: 0 }, { status: 402 }))
-    await assert.rejects(() => previewCard(args), InsufficientLeaves)
-  })
-})

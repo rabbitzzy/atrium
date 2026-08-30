@@ -16,7 +16,6 @@
     "@hono/zod-validator": "^0.3.0",
     "dotenv": "^16.4.0",
     "hono": "^4.5.0",
-    "puppeteer": "^24.42.0",
     "qrcode": "^1.5.4",
     "zod": "^3.23.8",
     "@atrium/schema": "workspace:*",
@@ -28,5 +27,9 @@
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
     "vitest": "^2.0.5"
+  },
+  "exports": {
+    "./app": "./src/app.ts",
+    "./blueprint": "./src/blueprint.ts"
   }
 }

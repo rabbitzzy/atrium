@@ -11,6 +11,30 @@ import type { TargetRoom } from './problems.js'
 
 const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
 
+/**
+ * How this service reaches skill-graph.
+ *
+ * HTTP by default, which is what `impl/architecture.md` asks for and what
+ * running standalone needs. But this service is now mounted inside the kiosk
+ * deployment, where skill-graph is mounted too — and there, an HTTP call would
+ * be the deployment asking itself a question over the public internet: an extra
+ * round trip per call, a URL that differs per deployment, and with Deployment
+ * Protection on, a 302 to a login page instead of an answer.
+ *
+ * So the host can hand in its own way of reaching it. The default is unchanged
+ * and nothing about the protocol moves: same paths, same Request, same
+ * Response — only the wire disappears.
+ */
+export type SkillGraphFetch = (path: string, init?: RequestInit) => Promise<Response>
+
+let reach: SkillGraphFetch = (path, init) => fetch(`${SKILL_GRAPH_URL}${path}`, init)
+
+/** Called by whoever mounts this service in the same process as skill-graph. */
+export function useSkillGraph(fetcher: SkillGraphFetch): void {
+  reach = fetcher
+}
+
+
 export class BlueprintError extends Error {}
 
 interface KcRow {
@@ -24,7 +48,7 @@ interface KcRow {
 async function getJson(path: string): Promise<unknown> {
   let res: Response
   try {
-    res = await fetch(`${SKILL_GRAPH_URL}${path}`, { headers: { accept: 'application/json' } })
+    res = await reach(path, { headers: { accept: 'application/json' } })
   } catch {
     throw new BlueprintError(`skill-graph is unreachable at ${SKILL_GRAPH_URL}`)
   }
@@ -121,7 +145,7 @@ export interface TaskRecord {
 export async function registerTask(task: TaskRecord): Promise<void> {
   let res: Response
   try {
-    res = await fetch(`${SKILL_GRAPH_URL}/tasks`, {
+    res = await reach('/tasks', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(task),
@@ -166,9 +190,7 @@ export async function readLeafBalance(studentId: string): Promise<number> {
 export async function spendLeaf(studentId: string): Promise<number> {
   let res: Response
   try {
-    res = await fetch(`${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/leaves/spend`, {
-      method: 'POST',
-    })
+    res = await reach(`/students/${encodeURIComponent(studentId)}/leaves/spend`, { method: 'POST' })
   } catch {
     throw new BlueprintError(`skill-graph is unreachable at ${SKILL_GRAPH_URL}`)
   }

@@ -1,5 +1,4 @@
 import QRCode from 'qrcode'
-import puppeteer from 'puppeteer'
 import { encodeCardQr } from '@atrium/card-qr'
 import { fetchRooms, registerTask, spendLeaf } from './blueprint.js'
 import { answerRegions, layoutFor, renderFixedCard } from './template.js'
@@ -39,17 +38,23 @@ export interface CardRequest {
  * the render, so a generation failure throws while nothing has been committed.
  * Everything downstream of here spends something.
  */
+/**
+ * Make a Card and take the Leaf for it.
+ *
+ * Returns HTML, not a PDF. It always built the page as HTML and then launched
+ * headless Chromium to photograph it — a conversion that existed only because
+ * the thing doing the printing was a server. The browser prints the Card now,
+ * and it prints HTML natively, so the whole `page.pdf` step was a round trip
+ * from markup to markup. Dropping it takes Chromium out of the service, which
+ * is what let the service move off the kiosk machine at all.
+ *
+ * `template.ts` was already written for this: the page is `@page` sized in
+ * millimetres with zero margin, and since the corner marks became SVG it
+ * survives a browser's print settings.
+ */
 export async function generateCard(
   req: CardRequest,
-  /**
-   * Simulate mode (no paper). Everything up to the render is identical — the
-   * planner picks, the problems are written, the task is registered, the Leaf
-   * is spent — and then the Card comes back as HTML for a screen instead of
-   * bytes for a tray. A rehearsal that skipped generation would be rehearsing
-   * a different system.
-   */
-  asHtml = false,
-): Promise<{ pdf: Buffer; html: string; balance: number }> {
+): Promise<{ html: string; balance: number }> {
   const rooms = await fetchRooms(req.kcIds)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
 
@@ -88,27 +93,17 @@ export async function generateCard(
     qrDataUrl,
   })
 
-  if (asHtml) {
-    const balance = await spendLeaf(req.studentId)
-    return { pdf: Buffer.alloc(0), html, balance }
-  }
-
-  const browser = await puppeteer.launch({ args: ['--no-sandbox'] })
-  let pdf: Buffer
-  try {
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: 'networkidle0' })
-    pdf = Buffer.from(await page.pdf({ format: 'Letter', printBackground: true }))
-  } finally {
-    await browser.close()
-  }
-
   // The Leaf is taken here and nowhere earlier: everything the service can
-  // observe has now succeeded, and the bytes are in hand. Throws 402 upward if
-  // the balance went to zero between the check at the top and this moment,
-  // which is the only ordering that cannot print free paper (BHCS-38).
+  // observe has now succeeded, and the Card exists. Throws 402 upward if the
+  // balance went to zero between the check at the top and this moment, which
+  // is the only ordering that cannot print free paper (BHCS-38).
+  //
+  // What the service can observe stops here, and now stops a little earlier
+  // than it did: nothing downstream can tell it whether paper came out. It
+  // never could tell reliably — that is why the recovery is a teacher grant —
+  // but the tray check that used to precede this is gone with the print agent.
   const balance = await spendLeaf(req.studentId)
-  return { pdf, html, balance }
+  return { html, balance }
 }
 
 /**
