@@ -16,8 +16,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { requireAdmin } from '../_lib/admin'
 import { relay } from '../_lib/relay'
 import { atrium, rows } from '../_lib/db'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
@@ -25,11 +24,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'POST') {
     const id = typeof req.query['id'] === 'string' ? req.query['id'] : ''
     if (!id) return res.status(400).json({ error: 'id is required' })
-    return relay(res, `${SKILL_GRAPH_URL}/teacher/queue/${encodeURIComponent(id)}/viewed`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req.body ?? {}),
-    })
+    return relay(res, () =>
+      callSkillGraph(`/teacher/queue/${encodeURIComponent(id)}/viewed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(req.body ?? {}),
+      }),
+    )
   }
 
   /*
@@ -46,11 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    */
   let upstream: Response
   try {
-    upstream = await fetch(`${SKILL_GRAPH_URL}/teacher/queue`, { headers: { accept: 'application/json' } })
+    upstream = await callSkillGraph('/teacher/queue', { headers: { accept: 'application/json' } })
   } catch {
     return res.status(503).json({
       error: 'skill_graph_unreachable',
-      detail: `nothing is listening at ${new URL(SKILL_GRAPH_URL).origin} — is it running?`,
+      detail: `no answer from ${skillGraphWhere()}`,
     })
   }
   if (!upstream.ok) {
