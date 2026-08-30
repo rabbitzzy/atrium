@@ -661,8 +661,19 @@ export default function Capture({ student, onSwitchStudent }: Props) {
           flexWrap: 'nowrap',
         }}
       >
+        {/*
+          The station's name, not the screen's. This said "Capture 拍摄", which
+          was true of the camera underneath it and false of everything else the
+          header sits above — My work opens below it without replacing it, so a
+          child browsing their folder was told they were capturing. A name that
+          does not change cannot be wrong about which screen you are on, and the
+          screens below already say what they are.
+
+          No Chinese gloss: it is a proper noun, and the row it lives in is
+          `nowrap` and already crowded.
+        */}
         <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap', flex: 'none' }}>
-          Capture <span style={{ opacity: 0.6, fontWeight: 600 }}>拍摄</span>
+          BHCS Atrium
         </div>
         {/*
           Two ways out of the camera, in the order they are wanted: their own
