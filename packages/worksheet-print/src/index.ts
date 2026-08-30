@@ -14,7 +14,31 @@ import { ProblemGenerationError } from './problems.js'
 import { answerRegions, fiducialRegions, LAYOUTS, layoutFor, PAGE_H, PAGE_W } from './template.js'
 
 const app = new Hono()
-app.use('*', cors())
+
+/**
+ * Let a page served over HTTPS ask this service for a Card.
+ *
+ * Generating needs Chromium, and the Card it produces has one destination: the
+ * printer on this machine. So this service stays beside the printer rather than
+ * moving to Vercel, and the kiosk UI — which is served from a public origin —
+ * calls it here on the LAN. Chrome guards that public-to-private crossing with
+ * an extra preflight and refuses unless the answer allows it. Registered ahead
+ * of `cors()` so it can add to the 204 that middleware returns.
+ */
+app.use('*', async (c, next) => {
+  await next()
+  if (c.req.raw.headers.get('access-control-request-private-network') === 'true') {
+    c.res.headers.set('Access-Control-Allow-Private-Network', 'true')
+  }
+})
+
+/*
+ * The X-Atrium-* headers below are the whole answer to "what did this cost and
+ * why this Room", and a cross-origin caller cannot read a response header
+ * unless it is exposed. Without this the kiosk reads null for the Leaf balance
+ * and shows a child nothing about the Leaf they just spent.
+ */
+app.use('*', cors({ origin: '*', exposeHeaders: ['X-Atrium-Rooms', 'X-Atrium-Leaves', 'X-Atrium-Reason'] }))
 app.use('*', logger())
 
 app.get('/health', (c) => c.json({ ok: true }))

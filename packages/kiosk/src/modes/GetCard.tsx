@@ -31,6 +31,13 @@ import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
 import { beginBusy } from '../lib/busy'
 import { PrintAgentUnreachable, printCard, trayState } from '../lib/printer'
+import {
+  type GeneratedCard,
+  generateCard,
+  InsufficientLeaves,
+  NoRoomToAssign,
+  previewCard,
+} from '../lib/worksheet'
 import SimulateCard from './SimulateCard'
 import Preparing from './Preparing'
 
@@ -123,26 +130,22 @@ export default function GetCard({
    * whoever fixes it, not to the seven-year-old, so it travels in the report
    * rather than onto the screen.
    */
-  async function printReturnedCard(res: Response) {
-    const taskId = res.headers.get('x-atrium-task-id')
-    const leavesLeft = Number(res.headers.get('x-atrium-leaves') ?? '0')
-    const pdf = await res.blob()
-
+  async function printGeneratedCard(card: GeneratedCard) {
     // Held jobs let the whole loop be exercised without spending paper. Set at
     // the station, the way simulate mode is.
     const hold = localStorage.getItem('atrium.holdPrints') === 'on'
 
     try {
-      const { jobId } = await printCard(pdf, {
-        title: `Atrium Card ${(taskId ?? '').slice(0, 8)}`,
+      const { jobId } = await printCard(card.pdf, {
+        title: `Atrium Card ${card.taskId.slice(0, 8)}`,
         ...(hold ? { hold: true } : {}),
       })
-      report({ studentId: student.id, taskId, ok: true, jobId })
-      setState({ kind: 'printed', leavesLeft })
+      report({ studentId: student.id, taskId: card.taskId, ok: true, jobId })
+      setState({ kind: 'printed', leavesLeft: card.leavesLeft })
     } catch (err) {
       report({
         studentId: student.id,
-        taskId,
+        taskId: card.taskId,
         ok: false,
         failure: err instanceof PrintAgentUnreachable ? 'unreachable' : 'refused',
         detail: err instanceof Error ? err.message : '',
@@ -178,49 +181,28 @@ export default function GetCard({
         if (!tray || !tray.ready) return setState({ kind: 'no-paper' })
       }
 
-      const res = await fetch('/api/card', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          studentId: student.id,
-          ...(subject ? { subject } : {}),
-          ...(simulate ? { preview: true } : {}),
-        }),
-      })
+      // The id is minted here so the Card, the print job and the outcome report
+      // all name the same task without a round trip to agree on one.
+      const taskId = crypto.randomUUID()
 
-      /*
-       * A Card comes back as a PDF and everything else comes back as JSON, so
-       * the content type is what says which happened. Reading the body the
-       * wrong way here would turn a successful Card into a parse error after
-       * the Leaf had already been spent.
-       */
-      if (res.ok && res.headers.get('content-type')?.includes('application/pdf')) {
+      if (simulate) {
+        const card = await previewCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
         onPrinted?.()
-        return printReturnedCard(res)
+        return setState({
+          kind: 'preview',
+          taskId: card.taskId,
+          html: card.html,
+          leavesLeft: card.leavesLeft,
+        })
       }
 
-      const body = (await res.json()) as {
-        error?: string
-        balance?: number
-        leavesLeft?: number
-        spentLeaf?: boolean
-      }
-
-      if (res.ok) {
-        onPrinted?.()
-        const b = body as unknown as { html?: string; taskId?: string }
-        if (b.html && b.taskId) {
-          return setState({
-            kind: 'preview',
-            taskId: b.taskId,
-            html: b.html,
-            leavesLeft: body.leavesLeft ?? 0,
-          })
-        }
-        setState({ kind: 'printed', leavesLeft: body.leavesLeft ?? 0 })
-        return
-      }
-      if (res.status === 402) {
+      const card = await generateCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
+      // The Leaf is gone from here on, which is why nothing below this line
+      // reports a failure as free.
+      onPrinted?.()
+      await printGeneratedCard(card)
+    } catch (err) {
+      if (err instanceof InsufficientLeaves) {
         // Zero because they spent them, or zero because nobody has placed them?
         // Only one of those is fixed by turning in a Card.
         const leaves = await fetch(`/api/leaves?studentId=${encodeURIComponent(student.id)}`)
@@ -228,19 +210,19 @@ export default function GetCard({
           .catch(() => null)
         return setState({
           kind: 'no-leaves',
-          balance: body.balance ?? 0,
+          balance: err.balance,
           bootstrapped: leaves?.bootstrapped !== false,
         })
       }
-      if (res.status === 409) {
+      if (err instanceof NoRoomToAssign) {
         return subject
           ? setState({ kind: 'nothing-in-subject', subject })
           : setState({ kind: 'nothing-to-do' })
       }
-      // Everything else splits on the only question that matters to the child:
-      // did this cost them something?
-      setState(body.spentLeaf ? { kind: 'spent-and-lost' } : { kind: 'no-paper' })
-    } catch {
+      // Everything that fails before or during generation leaves the child no
+      // worse off — the spend is the last thing generation does, and a failure
+      // that reached it throws from printGeneratedCard instead, which sets its
+      // own state and never reaches here.
       setState({ kind: 'no-paper' })
     } finally {
       done()
