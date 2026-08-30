@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { OcrStatus, StorageBackend } from '@atrium/schema'
 import { FOCUS_WARN_BELOW } from '../lib/focus'
 import { APPS } from '../platform/registry'
+import { adminHeader } from '../lib/admin'
 
 /**
  * Dev-only data viewer, reachable at #admin.
@@ -61,7 +62,7 @@ export default function Admin() {
     try {
       const qs = new URLSearchParams({ limit: '200' })
       if (kind) qs.set('kind', kind)
-      const res = await fetch(`/api/captures?${qs}`)
+      const res = await fetch(`/api/captures?${qs}`, { headers: adminHeader() })
       const body = (await res.json()) as { captures?: Capture[]; error?: string }
       if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`)
       setCaptures(body.captures ?? [])
