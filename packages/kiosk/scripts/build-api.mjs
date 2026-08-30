@@ -25,6 +25,16 @@ const result = await build({
   format: 'esm',
   // Matches the Node version the project runs on Vercel.
   target: 'node22',
+  /*
+   * Some dependencies are CommonJS and reach for `require` at runtime — the QR
+   * encoder loads `fs` that way to pick its PNG renderer. An ESM bundle has no
+   * `require`, and esbuild's stand-in throws rather than guessing, so the whole
+   * function fails to import on the first Card. Handing it a real one built
+   * from this module's URL is the supported way through.
+   */
+  banner: {
+    js: "import { createRequire as __createRequire } from 'node:module';\nconst require = __createRequire(import.meta.url);",
+  },
   // The functions are cold-started, not read; a source map costs nothing to
   // ship and makes a production stack trace name a real line.
   sourcemap: 'inline',

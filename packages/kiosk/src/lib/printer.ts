@@ -1,111 +1,98 @@
 /**
- * Handing a Card to the printer, from the browser.
+ * Putting a Card on paper, from the browser.
  *
- * ── Why the browser and not the server ──
+ * ── Why there is no print agent any more ──
  *
- * The print agent drives CUPS, so it has to run on the machine the printer is
- * plugged into. That machine sits on the school's LAN behind NAT, with an
- * address that means nothing on the public internet. While the kiosk's API
- * routes ran on the same machine this was invisible — `127.0.0.1:3003` was
- * simply true for everyone. Deployed, it stops being true for the half that
- * moved: a serverless function in a datacentre cannot open a connection *into*
- * a school network, and the fixes for that are a static IP and a firewall hole,
- * or a tunnel daemon that can die quietly on a Tuesday and take printing with
- * it.
+ * There used to be a service on the kiosk machine that drove CUPS, because the
+ * thing holding the Card was a server and a server cannot reach a printer it is
+ * not next to. Two things removed the need for it. The Card is HTML rather than
+ * a PDF, and a browser prints HTML natively; and the browser is already on the
+ * machine the printer is plugged into. So the page prints, and nothing has to
+ * run on that machine at all.
  *
- * The browser is already on the right side of the firewall. It runs on the
- * kiosk machine, inches from the printer. So the PDF comes down from the API as
- * bytes and the page hands it to the agent itself, and every connection is
- * outbound from inside the LAN. No tunnel, no static IP, nothing inbound.
+ * ── What that costs, deliberately ──
  *
- * Browsers permit this: `http://127.0.0.1` counts as a potentially trustworthy
- * origin, so an HTTPS page is allowed to call it and it is not blocked as mixed
- * content. Chrome does add a Private Network Access preflight on the way, which
- * the agent answers — see the middleware at the top of print-agent's index.ts.
+ * The agent's `/health` was the tray check, and the tray check was the only
+ * refusal that cost a child nothing: it ran before generation, and generation
+ * is where the Leaf goes. A browser cannot ask a printer whether it has paper,
+ * so that check is gone and an empty tray now costs a Leaf. The recovery is the
+ * one that already existed for a print that fails after the spend — a teacher
+ * grants a replacement (BHCS-47). This was chosen with that understood; it is
+ * not an oversight to be repaired by guessing at printer state.
  *
- * ── Configuration ──
+ * ── Silently, on a kiosk ──
  *
- * `localStorage`, the way `atrium.simulate` already works, rather than a build
- * time variable. One build serves every station, and a station whose agent sits
- * on a different box on the same LAN is a setting someone can change at the
- * machine instead of a redeploy.
+ * `print()` opens the browser's print dialog, which is wrong in front of a
+ * seven-year-old. Chrome started with `--kiosk-printing` prints to the default
+ * printer with no dialog at all, which is the intended station configuration.
+ * Everywhere else the dialog appears and the Card still prints; the code is the
+ * same either way.
  */
 
-/** Where this station's print agent listens. Loopback unless told otherwise. */
-export function printAgentUrl(): string {
-  try {
-    return localStorage.getItem('atrium.printAgent') || 'http://127.0.0.1:3003'
-  } catch {
-    // A kiosk with storage disabled still prints.
-    return 'http://127.0.0.1:3003'
-  }
-}
-
-export interface TrayState {
-  /** True only when a printer is configured *and* CUPS says it is ready. */
-  ready: boolean
-  printer: string | null
-}
+/** Thrown when the browser would not print. Rare, and not the child's fault. */
+export class PrintFailed extends Error {}
 
 /**
- * Is there paper, before a Leaf is spent?
+ * Print a Card, given the markup the worksheet service produced.
  *
- * The check that used to sit at the top of `POST /api/card` and has to keep
- * sitting before generation wherever it runs. Generating is where the Leaf
- * goes and there is no refund path, so the cheapest thing the station can do
- * for a child is refuse before it costs them anything. An empty tray is the
- * likeliest failure in a school and it is knowable in one call.
+ * The Card goes into a hidden iframe rather than the current document, because
+ * the document is the kiosk UI: printing it would print the buttons. The iframe
+ * carries the Card's own `@page` rules, so the sheet is sized and margin-free
+ * exactly as the template intends.
  *
- * An unreachable agent returns null rather than a false `ready`: "the printer
- * has no paper" and "this station cannot find its printer" are different
- * problems for whoever has to fix them.
+ * Resolves once the print has been handed to the browser. That is the last
+ * thing this can honestly report — whether ink reached paper is not knowable
+ * from here, which is the whole reason the outcome is reported rather than
+ * assumed.
  */
-export async function trayState(): Promise<TrayState | null> {
-  try {
-    const res = await fetch(`${printAgentUrl()}/health`)
-    if (!res.ok) return null
-    const body = (await res.json()) as { ready?: boolean; printer?: string | null }
-    return { ready: body.ready === true, printer: body.printer ?? null }
-  } catch {
-    return null
-  }
-}
+export function printCardHtml(html: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement('iframe')
+    // Off-screen rather than `display: none`: a hidden frame is not guaranteed
+    // to lay out, and a Card that never laid out prints blank.
+    frame.setAttribute('aria-hidden', 'true')
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0'
 
-/** Thrown when the agent was reached and refused, so the reason is real. */
-export class PrintRefused extends Error {}
-/** Thrown when the agent could not be reached at all. */
-export class PrintAgentUnreachable extends Error {}
+    let settled = false
+    const cleanup = () => {
+      // After the print, not before: removing the frame while the browser is
+      // still reading it prints an empty sheet.
+      window.setTimeout(() => frame.remove(), 1000)
+    }
 
-/**
- * Put a Card on paper. Returns the CUPS job id when there is one.
- *
- * Every caller of this has already spent a Leaf, so the two failures are kept
- * apart deliberately: both cost the child the same, but only one of them is
- * fixed by checking the printer.
- */
-export async function printCard(
-  pdf: Blob,
-  opts: { title: string; hold?: boolean },
-): Promise<{ jobId: string | null }> {
-  const query = new URLSearchParams({ title: opts.title })
-  if (opts.hold) query.set('hold', '1')
+    frame.onload = () => {
+      if (settled) return
+      settled = true
+      try {
+        const win = frame.contentWindow
+        if (!win) throw new PrintFailed('the print frame did not open')
+        win.focus()
+        win.print()
+        cleanup()
+        resolve()
+      } catch (err) {
+        cleanup()
+        reject(err instanceof Error ? err : new PrintFailed(String(err)))
+      }
+    }
 
-  let res: Response
-  try {
-    res = await fetch(`${printAgentUrl()}/print?${query}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/pdf' },
-      body: pdf,
-    })
-  } catch {
-    throw new PrintAgentUnreachable(`no print agent at ${printAgentUrl()}`)
-  }
+    frame.onerror = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new PrintFailed('the Card could not be loaded for printing'))
+    }
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new PrintRefused(detail.slice(0, 200) || `print agent answered ${res.status}`)
-  }
-
-  const body = (await res.json().catch(() => ({}))) as { jobId?: string }
-  return { jobId: body.jobId ?? null }
+    document.body.appendChild(frame)
+    const doc = frame.contentDocument
+    if (!doc) {
+      settled = true
+      frame.remove()
+      reject(new PrintFailed('the print frame has no document'))
+      return
+    }
+    doc.open()
+    doc.write(html)
+    doc.close()
+  })
 }

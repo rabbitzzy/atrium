@@ -1,50 +1,35 @@
 /**
  * Asking for a Card, from the browser.
  *
- * ── Why this service stays on the LAN ──
+ * ── Same origin, because nothing runs on this machine any more ──
  *
- * Generating a Card renders HTML through headless Chromium. That does not fit
- * a serverless function well — the browser binary dwarfs the deploy limit — and
- * more to the point it would be pointless: the PDF's only destination is the
- * printer on this machine, so rendering it in a datacentre means shipping it
- * back down again for nothing.
- *
- * So worksheet-print stays beside the print agent, and the same reasoning that
- * moved printing into the browser (`printer.ts`) applies here. A deployed API
- * route cannot reach a LAN address; this page can, because it runs on the
- * machine that address belongs to.
+ * This used to be a service on the kiosk machine: making a Card meant launching
+ * headless Chromium, and the paper came out of a printer on that LAN. The Card
+ * is HTML now and the browser prints it, so the service went into the
+ * deployment with everything else and answers at /api/worksheet.
  *
  * What this is *not* is offline capability. Generating still calls skill-graph
- * for the Room, the task record and the Leaf spend, and skill-graph is deployed
- * and backed by a hosted database. No arrangement makes Cards work without
- * internet — this one just stops the PDF making a pointless round trip.
+ * for the Room, the task record and the Leaf spend, and that is a hosted
+ * database. No arrangement makes Cards work without internet.
  *
  * ── What it costs ──
  *
- * `generateCard` spends a Leaf, and there is no refund path. Callers must have
- * checked the tray first (`printer.ts`), and must report what became of the
- * Card afterwards, because past this point a failure is not free.
+ * `generateCard` spends a Leaf, and there is no refund path. Nothing checks the
+ * tray first any more — a browser cannot ask a printer whether it has paper —
+ * so callers must report what became of the Card, because past this point a
+ * failure is not free.
  */
 
-/** Where this station's worksheet service listens. Loopback unless told otherwise. */
-export function worksheetUrl(): string {
-  try {
-    return localStorage.getItem('atrium.worksheet') || 'http://127.0.0.1:3002'
-  } catch {
-    return 'http://127.0.0.1:3002'
-  }
-}
+const WORKSHEET = '/api/worksheet'
 
-/** A Card on paper: the bytes, and what the kiosk needs to talk about them. */
+/**
+ * A Card: the markup, and what the kiosk needs to talk about it.
+ *
+ * One shape for both uses. A Card that gets printed and a Card rehearsed on
+ * screen are the same document now — the browser either prints the markup or
+ * renders it — so there is no longer a preview type distinct from a real one.
+ */
 export interface GeneratedCard {
-  taskId: string
-  pdf: Blob
-  rooms: string[]
-  leavesLeft: number
-}
-
-/** A rehearsal: the same Card as markup, no paper, and the Leaf still spent. */
-export interface PreviewCard {
   taskId: string
   html: string
   rooms: string[]
@@ -74,13 +59,13 @@ export class WorksheetUnreachable extends Error {}
 
 async function post(body: unknown): Promise<Response> {
   try {
-    return await fetch(`${worksheetUrl()}/generate`, {
+    return await fetch(`${WORKSHEET}/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
   } catch {
-    throw new WorksheetUnreachable(`no worksheet service at ${worksheetUrl()}`)
+    throw new WorksheetUnreachable('the station could not reach the worksheet service')
   }
 }
 
@@ -93,10 +78,11 @@ async function refuse(res: Response): Promise<never> {
 }
 
 /**
- * Make a Card. Spends a Leaf, and returns the PDF to hand to the printer.
+ * Make a Card. Spends a Leaf, and returns the markup to print or to show.
  *
- * The counts ride in headers because the body is the PDF itself. They are
- * readable cross-origin only because the service exposes them explicitly.
+ * Simulate mode asks for exactly the same thing: a rehearsal that skipped
+ * generation would be rehearsing a different system, and it costs the same Leaf
+ * on purpose. What differs is only what the caller then does with the markup.
  */
 export async function generateCard(args: {
   studentId: string
@@ -110,34 +96,14 @@ export async function generateCard(args: {
   })
   if (!res.ok) return refuse(res)
 
-  return {
-    taskId: args.taskId,
-    pdf: await res.blob(),
-    rooms: (res.headers.get('x-atrium-rooms') ?? '').split(',').filter(Boolean),
-    leavesLeft: Number(res.headers.get('x-atrium-leaves') ?? '0'),
+  const body = (await res.json()) as {
+    taskId: string
+    html: string
+    rooms?: string[]
+    leavesLeft?: number
   }
-}
-
-/**
- * Rehearse a Card on screen. Uses no paper and still spends the Leaf, because
- * the point of a rehearsal is to exercise the economy rather than sidestep it.
- */
-export async function previewCard(args: {
-  studentId: string
-  taskId: string
-  subject?: string
-}): Promise<PreviewCard> {
-  const res = await post({
-    studentId: args.studentId,
-    taskId: args.taskId,
-    preview: true,
-    ...(args.subject ? { subject: args.subject } : {}),
-  })
-  if (!res.ok) return refuse(res)
-
-  const body = (await res.json()) as { taskId: string; html: string; rooms: string[]; leavesLeft: number }
   return {
-    taskId: body.taskId,
+    taskId: body.taskId ?? args.taskId,
     html: body.html,
     rooms: body.rooms ?? [],
     leavesLeft: body.leavesLeft ?? 0,
