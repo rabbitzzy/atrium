@@ -8,23 +8,29 @@
  * was never buying anything except sixteen cold starts.
  *
  * So they live in `_routes/` now — the leading underscore is what keeps Vercel
- * from treating them as functions — and this file is the only entry point.
- * Each handler keeps its own file, its own name and its own
- * `(req, res)` shape; `_lib/vercel-handler.ts` is the seam that runs one inside
- * Hono, streaming included, which is what `capture` (SSE) and `capture-file`
- * (a piped read stream) need.
+ * from treating them as functions — and this file dispatches to them.
  *
- * The paths below are the paths that existed before. This is a change of
- * packaging, not of API: the kiosk calls `/api/leaves` exactly as it did.
+ * ── Why the handlers are called directly ──
  *
- * skill-graph is mounted rather than adapted, being a Hono app already. That
- * also means `student-state.ts`'s three calls to `/api/skill-graph` no longer
- * leave the datacentre — same process, same request, no round trip.
+ * Vercel invokes this function with Node's `(req, res)`, which is exactly what
+ * every handler already takes. An earlier version of this file put a Hono app
+ * in the middle and converted each request into a `Request` and each `Response`
+ * back again. It worked locally and hung in production on every POST, for a
+ * reason worth recording: Vercel's runtime reads the request body before the
+ * handler is called, so a `Request` built from that stream has a body that
+ * never arrives, and awaiting it waits until the function times out. GETs were
+ * fine, which is precisely why the first round of production checks missed it.
+ *
+ * Handing the handlers the real pair removes that translation and everything
+ * that depended on it: `req.body` is already parsed, `capture`'s SSE writes to
+ * the real socket, and `capture-file` can pipe a read stream straight into the
+ * response. Routing is an object lookup, which is all it ever needed to be.
+ *
+ * skill-graph is the exception. It is a Hono app, so it does want a `Request` —
+ * built here from the body Vercel already parsed, never from the spent stream.
  */
 
-import { Hono } from 'hono'
-import { getRequestListener } from '@hono/node-server'
-import { fromVercel } from './_lib/vercel-handler.js'
+import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 import skillGraph from './_routes/skill-graph.js'
 import capture from './_routes/capture.js'
@@ -43,50 +49,81 @@ import studentState from './_routes/student-state.js'
 import students from './_routes/students.js'
 import teacherQueue from './_routes/teacher-queue.js'
 
-const app = new Hono()
+type Handler = (req: VercelRequest, res: VercelResponse) => unknown
 
-/*
- * `all`, not `get`/`post`: the handlers check `req.method` themselves and
- * answer 405 with an `Allow` header. Routing by method here would turn those
- * into a 404, which says something different and less useful.
- */
-const routes: Array<[string, Parameters<typeof fromVercel>[0]]> = [
-  ['/api/capture', capture],
-  ['/api/capture-file', captureFile],
-  ['/api/capture-resolve', captureResolve],
-  ['/api/captures', captures],
-  ['/api/floor-plan', floorPlan],
-  ['/api/leaf-grant', leafGrant],
-  ['/api/leaves', leaves],
-  ['/api/my-work', myWork],
-  ['/api/placement', placement],
-  ['/api/print-outcome', printOutcome],
-  ['/api/simulate-submit', simulateSubmit],
-  ['/api/simulated', simulated],
-  ['/api/student-state', studentState],
-  ['/api/students', students],
-  ['/api/teacher-queue', teacherQueue],
-]
-
-for (const [path, handler] of routes) {
-  const run = fromVercel(handler)
-  app.all(path, (c) => run(c.req.raw))
+/** The paths that existed before this file did. Packaging changed; the API did not. */
+const ROUTES: Record<string, Handler> = {
+  '/api/capture': capture,
+  '/api/capture-file': captureFile,
+  '/api/capture-resolve': captureResolve,
+  '/api/captures': captures,
+  '/api/floor-plan': floorPlan,
+  '/api/leaf-grant': leafGrant,
+  '/api/leaves': leaves,
+  '/api/my-work': myWork,
+  '/api/placement': placement,
+  '/api/print-outcome': printOutcome,
+  '/api/simulate-submit': simulateSubmit,
+  '/api/simulated': simulated,
+  '/api/student-state': studentState,
+  '/api/students': students,
+  '/api/teacher-queue': teacherQueue,
 }
 
-app.route('/api/skill-graph', skillGraph)
+const SKILL_GRAPH_PREFIX = '/api/skill-graph'
 
-/*
- * A Node listener, not `hono/vercel`'s web handler.
+/**
+ * Hand a request to the mounted skill-graph app and write back what it says.
  *
- * Vercel invokes this function with Node's (req, res) — the same pair the
- * route handlers themselves expect. A handler that takes a `Request` and
- * returns a `Response` is simply called with the wrong arguments: the returned
- * Response is dropped, nothing is ever written to `res`, and the request hangs
- * until the function times out. That is not a failure that shows up in a build
- * log; it shows up as a kiosk that waits sixty seconds and gives up.
- *
- * `getRequestListener` is the adapter for exactly this: it builds the Request
- * from the Node one, runs the app, and writes the Response back — including
- * streaming, which `capture`'s SSE depends on.
+ * The body comes from `req.body` — already parsed by the runtime — rather than
+ * from the request stream, which by this point has nothing left to give.
  */
-export default getRequestListener(app.fetch)
+async function serveSkillGraph(req: VercelRequest, res: VercelResponse, url: URL) {
+  const path = url.pathname.slice(SKILL_GRAPH_PREFIX.length) || '/'
+
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue
+    // Re-serialising the body makes the inherited length wrong, and the host
+    // belongs to the deployment rather than to this internal request.
+    if (key === 'content-length' || key === 'host') continue
+    headers.set(key, Array.isArray(value) ? value.join(', ') : value)
+  }
+
+  const init: RequestInit = { method: req.method ?? 'GET', headers }
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.body !== undefined) {
+    if (typeof req.body === 'string') {
+      init.body = req.body
+    } else {
+      init.body = JSON.stringify(req.body)
+      if (!headers.has('content-type')) headers.set('content-type', 'application/json')
+    }
+  }
+
+  const answer = await skillGraph.fetch(new Request(`http://skill-graph${path}${url.search}`, init))
+
+  res.statusCode = answer.status
+  answer.headers.forEach((value, key) => res.setHeader(key, value))
+  if (!answer.body) return res.end()
+
+  // Streamed rather than buffered, so a large Blueprint starts arriving while
+  // the rest is still being serialised.
+  for await (const chunk of answer.body as unknown as AsyncIterable<Uint8Array>) {
+    res.write(chunk)
+  }
+  return res.end()
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url ?? '/', 'http://kiosk')
+  const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname
+
+  const route = ROUTES[path]
+  if (route) return route(req, res)
+
+  if (path === SKILL_GRAPH_PREFIX || path.startsWith(`${SKILL_GRAPH_PREFIX}/`)) {
+    return serveSkillGraph(req, res, url)
+  }
+
+  return res.status(404).json({ error: 'not_found', path })
+}
