@@ -7,15 +7,18 @@
  *
  * ── Every state is a sentence, not a status ──
  *
- * There are five ways this ends and a seven-year-old has to understand all of
+ * There are six ways this ends and a seven-year-old has to understand all of
  * them without an adult. None of them may read as a refusal or a fault:
  *
- *   printed        — here it comes, and here is what it costs
- *   no Leaves      — turn in a Card and you'll have one; two ways out named
- *   nothing to do  — everything is finished, or a teacher should look first
- *   no paper       — the machine's problem, said as the machine's problem,
- *                    and no Leaf was spent
- *   spent and lost — the one case that needs an adult, and it says so plainly
+ *   printed         — here it comes, and here is what it costs
+ *   no Leaves       — turn in a Card and you'll have one; two ways out named
+ *   nothing to do   — everything is finished, or a teacher should look first
+ *   no paper        — the machine's problem, said as the machine's problem,
+ *                     and no Leaf was spent
+ *   station offline — the part that makes Cards is not running; also the
+ *                     machine's problem, and distinct from the tray being
+ *                     empty because no printer is involved in it at all
+ *   spent and lost  — the one case that needs an adult, and it says so plainly
  *
  * That last one is the honest cost of there being no refund path (BHCS-38,
  * BHCS-67). If a Leaf is spent and the paper does not arrive, the child is told
@@ -37,6 +40,7 @@ import {
   InsufficientLeaves,
   NoRoomToAssign,
   previewCard,
+  WorksheetUnreachable,
 } from '../lib/worksheet'
 import SimulateCard from './SimulateCard'
 import Preparing from './Preparing'
@@ -104,6 +108,8 @@ type Outcome =
   | { kind: 'no-leaves'; balance: number; bootstrapped: boolean }
   | { kind: 'nothing-to-do' }
   | { kind: 'no-paper' }
+  /** A service this station needs is not answering. Not the child's problem. */
+  | { kind: 'station-offline' }
   | { kind: 'spent-and-lost' }
 
 export default function GetCard({
@@ -219,10 +225,17 @@ export default function GetCard({
           ? setState({ kind: 'nothing-in-subject', subject })
           : setState({ kind: 'nothing-to-do' })
       }
-      // Everything that fails before or during generation leaves the child no
-      // worse off — the spend is the last thing generation does, and a failure
-      // that reached it throws from printGeneratedCard instead, which sets its
-      // own state and never reaches here.
+      // A station whose worksheet service is not running cannot make a Card at
+      // all, and saying "the printer isn't ready" about it is wrong twice: no
+      // printer was involved, and in simulate mode there is no paper in the
+      // story either. Whoever has to fix it needs to know which thing is down.
+      if (err instanceof WorksheetUnreachable) {
+        return setState({ kind: 'station-offline' })
+      }
+      // Everything else that fails before or during generation leaves the child
+      // no worse off — the spend is the last thing generation does, and a
+      // failure that reached it throws from printGeneratedCard instead, which
+      // sets its own state and never reaches here.
       setState({ kind: 'no-paper' })
     } finally {
       done()
@@ -350,6 +363,21 @@ export default function GetCard({
         <span style={zh}>现在没有新的练习卡。</span>
         <span style={{ fontSize: 14, color: '#5a5a6a' }}>
           Ask your teacher what to do next. 问问老师接下来做什么。
+        </span>
+        {again}
+      </Panel>
+    )
+  }
+
+  if (state.kind === 'station-offline') {
+    return (
+      <Panel tone="#c8963e">
+        <b style={{ fontSize: 19 }}>This station can't make a Card right now.</b>
+        <span style={zh}>这台机器现在做不了学习卡。</span>
+        <span style={{ fontSize: 14, color: '#5a5a6a' }}>
+          You still have all your Leaves — nothing was used. Please tell a teacher.
+          <br />
+          你的叶子一片都没少。请告诉老师。
         </span>
         {again}
       </Panel>
