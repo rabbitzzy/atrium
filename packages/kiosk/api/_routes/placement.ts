@@ -16,10 +16,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from './_lib/admin'
-import { relay } from './_lib/relay'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { requireAdmin } from '../_lib/admin.js'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
@@ -29,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     const id = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''
     if (!id) return res.status(400).json({ error: 'studentId is required' })
-    return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(id)}/placement`)
+    return relay(res, () => callSkillGraph(`/students/${encodeURIComponent(id)}/placement`))
   }
 
   if (req.method !== 'POST') {
@@ -40,9 +39,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = (req.body ?? {}) as { studentId?: string }
   if (!body.studentId) return res.status(400).json({ error: 'studentId is required' })
 
-  return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(body.studentId)}/placement`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req.body),
-  })
+  // Captured before the closure: the guard above narrows `body.studentId`, but
+  // that narrowing does not survive into an arrow function.
+  const studentId = encodeURIComponent(body.studentId)
+  return relay(res, () =>
+    callSkillGraph(`/students/${studentId}/placement`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body),
+    }),
+  )
 }

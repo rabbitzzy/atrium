@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { getSupabase } from '../db/client.js'
+import { getSupabase, rows } from '../db/client.js'
 import {
   applySessionFloor,
   bktUpdateWeighted,
@@ -74,12 +74,9 @@ router.get('/:id/radar', async (c) => {
         evidence: p.evidence,
         seen: p.seen,
       })),
-      (strands ?? []).map((s) => ({
-        id: s.id as string,
-        labelEn: s.label_en as string,
-        labelZh: s.label_zh as string,
-        subject: s.subject as string,
-      })),
+      rows<{ id: string; label_en: string; label_zh: string; subject: string }>(strands).map(
+        (s) => ({ id: s.id, labelEn: s.label_en, labelZh: s.label_zh, subject: s.subject }),
+      ),
     )
   }
 
@@ -94,20 +91,16 @@ router.get('/:id/radar', async (c) => {
   // is stated here so nobody later reads the empty result as a bug.
   let edges: { from: string; to: string; type: string }[] | undefined
   if (c.req.query('edges') !== undefined && c.req.query('edges') !== '0') {
-    const { data: rows, error } = await db
+    const { data: edgeData, error } = await db
       .from('kc_edges')
       .select('from_kc_id, to_kc_id, edge_type')
       .order('from_kc_id')
     if (error) return c.json({ error: error.message }, 500)
 
     const onMap = new Set(points.map((p) => p.kcId))
-    edges = (rows ?? [])
-      .filter((e) => onMap.has(e.from_kc_id as string) && onMap.has(e.to_kc_id as string))
-      .map((e) => ({
-        from: e.from_kc_id as string,
-        to: e.to_kc_id as string,
-        type: e.edge_type as string,
-      }))
+    edges = rows<{ from_kc_id: string; to_kc_id: string; edge_type: string }>(edgeData)
+      .filter((e) => onMap.has(e.from_kc_id) && onMap.has(e.to_kc_id))
+      .map((e) => ({ from: e.from_kc_id, to: e.to_kc_id, type: e.edge_type }))
   }
 
   return c.json({
@@ -222,16 +215,24 @@ router.delete('/:id/simulated', async (c) => {
       db.from('kcs').select('id, label_en, subject, difficulty, bkt_p_l0').eq('depth', 2),
       db.from('student_kc_state').select('kc_id, attempts').eq('student_id', studentId),
     ])
-    const attemptsByKc = new Map((after ?? []).map((r) => [r.kc_id as string, r.attempts as number]))
+    const attemptsByKc = new Map(
+      rows<{ kc_id: string; attempts: number }>(after).map((r) => [r.kc_id, r.attempts]),
+    )
     const result = derivePlacement(
       placement.claim_json as { levels: Record<string, number> },
-      (leaves ?? []).map((kc) => ({
-        kcId: kc.id as string,
-        labelEn: kc.label_en as string,
-        subject: kc.subject as string,
-        difficulty: kc.difficulty as number,
-        bktPL0: kc.bkt_p_l0 as number,
-        attempts: attemptsByKc.get(kc.id as string) ?? 0,
+      rows<{
+        id: string
+        label_en: string
+        subject: string
+        difficulty: number
+        bkt_p_l0: number
+      }>(leaves).map((kc) => ({
+        kcId: kc.id,
+        labelEn: kc.label_en,
+        subject: kc.subject,
+        difficulty: kc.difficulty,
+        bktPL0: kc.bkt_p_l0,
+        attempts: attemptsByKc.get(kc.id) ?? 0,
       })),
     )
     if (result.seeded.length) {
@@ -275,28 +276,41 @@ router.get('/:id/attempts', async (c) => {
     .limit(60)
   if (error) return c.json({ error: error.message }, 500)
 
-  const rows = data ?? []
-  const kcIds = [...new Set(rows.map((r) => r.kc_id as string))]
+  type AttemptRow = {
+    kc_id: string
+    question_number: number | null
+    correct: boolean
+    weight: number
+    mastery_before: number
+    mastery_after: number
+    capture_id: string | null
+    created_at: string
+  }
+  const attempts = rows<AttemptRow>(data)
+  const kcIds = [...new Set(attempts.map((r) => r.kc_id))]
   const { data: kcs } = kcIds.length
     ? await db.from('kcs').select('id, label_en, label_zh').in('id', kcIds)
     : { data: [] }
   const label = new Map(
-    (kcs ?? []).map((k) => [k.id as string, { en: k.label_en as string, zh: k.label_zh as string }]),
+    rows<{ id: string; label_en: string; label_zh: string }>(kcs).map((k) => [
+      k.id,
+      { en: k.label_en, zh: k.label_zh },
+    ]),
   )
 
   return c.json({
     studentId,
-    attempts: rows.map((r) => ({
-      kcId: r.kc_id as string,
-      labelEn: label.get(r.kc_id as string)?.en ?? (r.kc_id as string),
-      labelZh: label.get(r.kc_id as string)?.zh ?? '',
-      question: r.question_number as number | null,
-      correct: r.correct as boolean,
-      weight: r.weight as number,
-      before: r.mastery_before as number,
-      after: r.mastery_after as number,
-      captureId: r.capture_id as string | null,
-      at: r.created_at as string,
+    attempts: attempts.map((r) => ({
+      kcId: r.kc_id,
+      labelEn: label.get(r.kc_id)?.en ?? r.kc_id,
+      labelZh: label.get(r.kc_id)?.zh ?? '',
+      question: r.question_number,
+      correct: r.correct,
+      weight: r.weight,
+      before: r.mastery_before,
+      after: r.mastery_after,
+      captureId: r.capture_id,
+      at: r.created_at,
     })),
   })
 })
@@ -410,14 +424,23 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
     .in('id', kcIds)
   if (kcError) return c.json({ error: kcError.message }, 500)
 
-  const kcById = new Map((kcs ?? []).map((k) => [k.id as string, k]))
+  type BktKcRow = {
+    id: string
+    depth: number
+    bkt_p_l0: number
+    bkt_p_t: number
+    bkt_p_s: number
+    bkt_p_g: number
+  }
+  const kcRows = rows<BktKcRow>(kcs)
+  const kcById = new Map(kcRows.map((k) => [k.id, k]))
   const unknown = kcIds.filter((id) => !kcById.has(id))
   if (unknown.length) return c.json({ error: 'unknown kcIds', unknown }, 400)
 
   // Headings are not assessable — 004 asserts it of the graph, and the same
   // rule has to hold at the door or an attempt could grant mastery of
   // "Mathematics" and unlock every Room beneath it at once.
-  const headings = (kcs ?? []).filter((k) => k.depth !== 2).map((k) => k.id as string)
+  const headings = kcRows.filter((k) => k.depth !== 2).map((k) => k.id)
   if (headings.length) {
     return c.json({ error: 'kcIds must be assessable leaves, not headings', headings }, 400)
   }
@@ -469,7 +492,7 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
       replayedKcIds: alreadyApplied,
       updates: kcIds.map((id) => {
         const s = state.get(id)
-        const mastery = s?.mastery_prob ?? (kcById.get(id)!.bkt_p_l0 as number)
+        const mastery = s?.mastery_prob ?? kcById.get(id)!.bkt_p_l0
         const evidence = s?.evidence ?? 0
         return {
           kcId: id,
@@ -538,12 +561,12 @@ router.post('/:id/attempt', zValidator('json', RecordAttemptSchema), async (c) =
   for (const kcId of todo) {
     const kc = kcById.get(kcId)!
     const prior = state.get(kcId)
-    const before = prior?.mastery_prob ?? (kc.bkt_p_l0 as number)
+    const before = prior?.mastery_prob ?? kc.bkt_p_l0
     const params: BktParams = {
-      pL0: kc.bkt_p_l0 as number,
-      pT: kc.bkt_p_t as number,
-      pS: kc.bkt_p_s as number,
-      pG: kc.bkt_p_g as number,
+      pL0: kc.bkt_p_l0,
+      pT: kc.bkt_p_t,
+      pS: kc.bkt_p_s,
+      pG: kc.bkt_p_g,
     }
 
     // Walk the sequence. Each question moves the number from where the last
@@ -735,14 +758,23 @@ router.post('/:id/placement', zValidator('json', PlacementSchema), async (c) => 
   if (kcError) return c.json({ error: kcError.message }, 500)
   if (stateError) return c.json({ error: stateError.message }, 500)
 
-  const attemptsByKc = new Map((existing ?? []).map((r) => [r.kc_id as string, r.attempts as number]))
-  const rooms: PlacementRoom[] = (leaves ?? []).map((kc) => ({
-    kcId: kc.id as string,
-    labelEn: kc.label_en as string,
-    subject: kc.subject as string,
-    difficulty: kc.difficulty as number,
-    bktPL0: kc.bkt_p_l0 as number,
-    attempts: attemptsByKc.get(kc.id as string) ?? 0,
+  const attemptsByKc = new Map(
+    rows<{ kc_id: string; attempts: number }>(existing).map((r) => [r.kc_id, r.attempts]),
+  )
+  type PlacementKcRow = {
+    id: string
+    label_en: string
+    subject: string
+    difficulty: number
+    bkt_p_l0: number
+  }
+  const rooms: PlacementRoom[] = rows<PlacementKcRow>(leaves).map((kc) => ({
+    kcId: kc.id,
+    labelEn: kc.label_en,
+    subject: kc.subject,
+    difficulty: kc.difficulty,
+    bktPL0: kc.bkt_p_l0,
+    attempts: attemptsByKc.get(kc.id) ?? 0,
   }))
 
   const claim = body.rooms ? { levels: body.levels, rooms: body.rooms } : { levels: body.levels }
@@ -1003,9 +1035,9 @@ async function readState(
     .eq('student_id', studentId)
     .in('kc_id', kcIds)
   return new Map(
-    (data ?? []).map((r) => [
-      r.kc_id as string,
-      { mastery_prob: r.mastery_prob as number, attempts: r.attempts as number, evidence: r.evidence as number },
+    rows<{ kc_id: string } & StateRow>(data).map((r) => [
+      r.kc_id,
+      { mastery_prob: r.mastery_prob, attempts: r.attempts, evidence: r.evidence },
     ]),
   )
 }

@@ -16,8 +16,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { atrium } from './_lib/db'
-import { appById } from './_lib/registry'
+import { atrium } from '../_lib/db.js'
+import { appById } from '../_lib/registry.js'
 
 interface ResolveBody {
   captureId?: string

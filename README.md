@@ -94,7 +94,7 @@ kiosk works end to end without the Vercel CLI. `pnpm -F kiosk dev:full` runs
 `vercel dev` instead, when you want to exercise the real serverless runtime.
 
 The kiosk needs at minimum `GEMINI_API_KEY`, `SUPABASE_URL` /
-`SUPABASE_SERVICE_KEY` (paste from `supabase start` output), and `BHCS_API_URL`
+`SUPABASE_SECRET_KEY` (paste from `supabase start` output), and `BHCS_API_URL`
 / `BHCS_API_KEY` for the roster. Captures default to Google Drive; for local
 work set `CAPTURE_STORAGE=local` and a `CAPTURE_LOCAL_DIR`, which needs no
 Google setup at all.

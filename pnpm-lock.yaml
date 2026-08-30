@@ -120,9 +120,18 @@ importers:
       '@atrium/schema':
         specifier: workspace:*
         version: link:../schema
+      '@atrium/skill-graph':
+        specifier: workspace:*
+        version: link:../skill-graph
+      '@hono/node-server':
+        specifier: ^1.12.0
+        version: 1.19.14(hono@4.12.16)
       '@supabase/supabase-js':
         specifier: ^2.45.0
         version: 2.105.1
+      hono:
+        specifier: ^4.5.0
+        version: 4.12.16
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
@@ -148,6 +157,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.1
         version: 4.7.0(vite@5.4.21(@types/node@22.19.17))
+      esbuild:
+        specifier: ^0.21.5
+        version: 0.21.5
       tsx:
         specifier: ^4.16.2
         version: 4.21.0

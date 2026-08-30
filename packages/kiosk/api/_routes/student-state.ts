@@ -15,9 +15,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from './_lib/admin'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { requireAdmin } from '../_lib/admin.js'
+import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
@@ -28,15 +27,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const id = encodeURIComponent(studentId)
   try {
     const [radar, attempts, leaves] = await Promise.all([
-      fetch(`${SKILL_GRAPH_URL}/students/${id}/radar?depth=2&spokes=1`).then((r) => r.json()),
-      fetch(`${SKILL_GRAPH_URL}/students/${id}/attempts`).then((r) => r.json()),
-      fetch(`${SKILL_GRAPH_URL}/students/${id}/leaves`).then((r) => r.json()),
+      callSkillGraph(`/students/${id}/radar?depth=2&spokes=1`).then((r) => r.json()),
+      callSkillGraph(`/students/${id}/attempts`).then((r) => r.json()),
+      callSkillGraph(`/students/${id}/leaves`).then((r) => r.json()),
     ])
     return res.status(200).json({ studentId, radar, attempts, leaves })
   } catch {
     return res.status(503).json({
       error: 'skill_graph_unreachable',
-      detail: `nothing is listening at ${SKILL_GRAPH_URL} — is it running?`,
+      detail: `no answer from ${skillGraphWhere()}`,
     })
   }
 }

@@ -15,9 +15,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { relay } from './_lib/relay'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 const TIERS = ['mastered', 'shaky', 'needs-help', 'not-yet'] as const
 type Tier = (typeof TIERS)[number]
@@ -48,30 +47,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!marks.length) return res.status(400).json({ error: 'mark at least one question' })
 
   // Which Rooms the Card was for. Same lookup the record hook does after a scan.
-  const taskRes = await fetch(`${SKILL_GRAPH_URL}/tasks/${encodeURIComponent(body.taskId)}`)
+  const taskRes = await callSkillGraph(`/tasks/${encodeURIComponent(body.taskId)}`)
   if (!taskRes.ok) return res.status(502).json({ error: 'unknown_task' })
   const task = (await taskRes.json()) as { kcs?: { id: string }[] }
   const kcIds = (task.kcs ?? []).map((k) => k.id)
   if (!kcIds.length) return res.status(409).json({ error: 'task_targets_no_rooms' })
 
   // The Leaf for turning it in, exactly as a real submission earns it.
-  await fetch(`${SKILL_GRAPH_URL}/students/${encodeURIComponent(body.studentId)}/leaves/earn`, {
+  const studentId = encodeURIComponent(body.studentId)
+  await callSkillGraph(`/students/${studentId}/leaves/earn`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ taskId: body.taskId }),
   }).catch(() => undefined)
 
-  return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(body.studentId)}/attempt`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      kcIds,
-      taskId: body.taskId,
-      simulated: true,
-      questions: marks
-        .slice()
-        .sort((a, b) => a.number - b.number)
-        .map((m) => ({ number: m.number, ...TIER[m.quality] })),
+  return relay(res, () =>
+    callSkillGraph(`/students/${studentId}/attempt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kcIds,
+        taskId: body.taskId,
+        simulated: true,
+        questions: marks
+          .slice()
+          .sort((a, b) => a.number - b.number)
+          .map((m) => ({ number: m.number, ...TIER[m.quality] })),
+      }),
     }),
-  })
+  )
 }

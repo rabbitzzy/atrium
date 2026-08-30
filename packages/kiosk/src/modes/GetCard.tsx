@@ -30,8 +30,38 @@ import { useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
 import { beginBusy } from '../lib/busy'
+import { PrintAgentUnreachable, printCard, trayState } from '../lib/printer'
+import {
+  type GeneratedCard,
+  generateCard,
+  InsufficientLeaves,
+  NoRoomToAssign,
+  previewCard,
+} from '../lib/worksheet'
 import SimulateCard from './SimulateCard'
 import Preparing from './Preparing'
+
+/**
+ * Tell the server how the printing went, and never wait on it.
+ *
+ * The child already has their answer on screen by the time this runs. A station
+ * that cannot reach the route must not turn a printing problem into a second
+ * failure, so this deliberately has no error path and nothing awaits it.
+ */
+function report(outcome: {
+  studentId: string
+  taskId: string | null
+  ok: boolean
+  jobId?: string | null
+  failure?: string
+  detail?: string
+}) {
+  void fetch('/api/print-outcome', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(outcome),
+  }).catch(() => {})
+}
 
 /**
  * Four doors, all the same size.
@@ -90,6 +120,40 @@ export default function GetCard({
   // Set from the admin surface. Off means paper, which is the real thing.
   const simulate = localStorage.getItem('atrium.simulate') === 'on'
 
+  /**
+   * The Card is here and the Leaf is gone. Get it onto paper.
+   *
+   * Everything past this point costs the child the same whatever goes wrong, so
+   * the two outcomes on screen are the two that mean different things to them:
+   * paper came out, or it did not and that was not free. The distinction
+   * between a printer that refused and one that could not be found matters to
+   * whoever fixes it, not to the seven-year-old, so it travels in the report
+   * rather than onto the screen.
+   */
+  async function printGeneratedCard(card: GeneratedCard) {
+    // Held jobs let the whole loop be exercised without spending paper. Set at
+    // the station, the way simulate mode is.
+    const hold = localStorage.getItem('atrium.holdPrints') === 'on'
+
+    try {
+      const { jobId } = await printCard(card.pdf, {
+        title: `Atrium Card ${card.taskId.slice(0, 8)}`,
+        ...(hold ? { hold: true } : {}),
+      })
+      report({ studentId: student.id, taskId: card.taskId, ok: true, jobId })
+      setState({ kind: 'printed', leavesLeft: card.leavesLeft })
+    } catch (err) {
+      report({
+        studentId: student.id,
+        taskId: card.taskId,
+        ok: false,
+        failure: err instanceof PrintAgentUnreachable ? 'unreachable' : 'refused',
+        detail: err instanceof Error ? err.message : '',
+      })
+      setState({ kind: 'spent-and-lost' })
+    }
+  }
+
   async function ask(subject?: string) {
     setState(subject ? { kind: 'working', subject } : { kind: 'working' })
     /*
@@ -101,37 +165,44 @@ export default function GetCard({
      */
     const done = beginBusy()
     try {
-      const res = await fetch('/api/card', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          studentId: student.id,
-          ...(subject ? { subject } : {}),
-          ...(simulate ? { preview: true } : {}),
-        }),
-      })
-      const body = (await res.json()) as {
-        error?: string
-        balance?: number
-        leavesLeft?: number
-        spentLeaf?: boolean
+      /*
+       * The tray, before the Leaf.
+       *
+       * This check used to be the first thing `POST /api/card` did, and it has
+       * to stay first wherever it lives: generating spends the Leaf and there is
+       * no refund path, so refusing here is the only refusal that costs a child
+       * nothing. It runs from the browser now because the print agent is on this
+       * machine's LAN and the API route no longer is (`lib/printer.ts`).
+       *
+       * Simulate mode has no tray to check.
+       */
+      if (!simulate) {
+        const tray = await trayState()
+        if (!tray || !tray.ready) return setState({ kind: 'no-paper' })
       }
 
-      if (res.ok) {
+      // The id is minted here so the Card, the print job and the outcome report
+      // all name the same task without a round trip to agree on one.
+      const taskId = crypto.randomUUID()
+
+      if (simulate) {
+        const card = await previewCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
         onPrinted?.()
-        const b = body as unknown as { html?: string; taskId?: string }
-        if (b.html && b.taskId) {
-          return setState({
-            kind: 'preview',
-            taskId: b.taskId,
-            html: b.html,
-            leavesLeft: body.leavesLeft ?? 0,
-          })
-        }
-        setState({ kind: 'printed', leavesLeft: body.leavesLeft ?? 0 })
-        return
+        return setState({
+          kind: 'preview',
+          taskId: card.taskId,
+          html: card.html,
+          leavesLeft: card.leavesLeft,
+        })
       }
-      if (res.status === 402) {
+
+      const card = await generateCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
+      // The Leaf is gone from here on, which is why nothing below this line
+      // reports a failure as free.
+      onPrinted?.()
+      await printGeneratedCard(card)
+    } catch (err) {
+      if (err instanceof InsufficientLeaves) {
         // Zero because they spent them, or zero because nobody has placed them?
         // Only one of those is fixed by turning in a Card.
         const leaves = await fetch(`/api/leaves?studentId=${encodeURIComponent(student.id)}`)
@@ -139,19 +210,19 @@ export default function GetCard({
           .catch(() => null)
         return setState({
           kind: 'no-leaves',
-          balance: body.balance ?? 0,
+          balance: err.balance,
           bootstrapped: leaves?.bootstrapped !== false,
         })
       }
-      if (res.status === 409) {
+      if (err instanceof NoRoomToAssign) {
         return subject
           ? setState({ kind: 'nothing-in-subject', subject })
           : setState({ kind: 'nothing-to-do' })
       }
-      // Everything else splits on the only question that matters to the child:
-      // did this cost them something?
-      setState(body.spentLeaf ? { kind: 'spent-and-lost' } : { kind: 'no-paper' })
-    } catch {
+      // Everything that fails before or during generation leaves the child no
+      // worse off — the spend is the last thing generation does, and a failure
+      // that reached it throws from printGeneratedCard instead, which sets its
+      // own state and never reaches here.
       setState({ kind: 'no-paper' })
     } finally {
       done()

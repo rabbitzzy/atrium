@@ -18,9 +18,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { relay } from './_lib/relay'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const studentId = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''
@@ -33,9 +32,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // as a building rather than a polygon. Asked for unconditionally because the
   // two views share one fetch — a child toggling between them should not wait
   // twice, and the wiring is a couple of kilobytes.
-  const url = `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/radar?depth=2&spokes=1&edges=1`
+  const path = `/students/${encodeURIComponent(studentId)}/radar?depth=2&spokes=1&edges=1`
 
   // A station that cannot reach the service keeps working; the progress screen
   // says it cannot read the numbers right now, and no child sees a stack trace.
-  return relay(res, url, { headers: { accept: 'application/json' } })
+  return relay(res, () => callSkillGraph(path, { headers: { accept: 'application/json' } }))
 }

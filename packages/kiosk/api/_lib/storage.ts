@@ -17,7 +17,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import type { StorageBackend } from '@atrium/schema'
-import { uploadToDrive } from './drive'
+import { uploadToDrive } from './drive.js'
 
 export interface StoredFile {
   backend: StorageBackend

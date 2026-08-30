@@ -22,7 +22,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { getSupabase } from '../db/client.js'
+import { getSupabase, rows } from '../db/client.js'
 
 const router = new Hono()
 
@@ -52,19 +52,28 @@ router.get('/queue', async (c) => {
     .limit(200)
   if (error) return c.json({ error: error.message }, 500)
 
-  const rows = data ?? []
+  type QueueRow = {
+    id: string
+    session_id: string
+    task_id: string | null
+    capture_id: string | null
+    scan_url: string | null
+    ai_eval_json: unknown
+    submitted_at: string
+  }
+  const queued = rows<QueueRow>(data)
 
   // Whose work each item is. The queue is useless without a name on it, and
   // sessions is the only place that join exists.
-  const sessionIds = [...new Set(rows.map((r) => r.session_id as string))]
+  const sessionIds = [...new Set(queued.map((r) => r.session_id))]
   const { data: sessions } = sessionIds.length
     ? await db.from('sessions').select('id, student_id').in('id', sessionIds)
     : { data: [] }
   const studentBySession = new Map(
-    (sessions ?? []).map((s) => [s.id as string, s.student_id as string]),
+    rows<{ id: string; student_id: string }>(sessions).map((s) => [s.id, s.student_id]),
   )
 
-  const items = rows
+  const items = queued
     .map((r) => {
       const evaluation = (r.ai_eval_json ?? {}) as {
         overall_quality?: string
@@ -73,12 +82,12 @@ router.get('/queue', async (c) => {
         questions?: Array<Record<string, unknown>>
       }
       return {
-        sessionTaskId: r.id as string,
-        studentId: studentBySession.get(r.session_id as string) ?? null,
-        taskId: r.task_id as string | null,
-        captureId: r.capture_id as string | null,
-        scanUrl: r.scan_url as string | null,
-        submittedAt: r.submitted_at as string,
+        sessionTaskId: r.id,
+        studentId: studentBySession.get(r.session_id) ?? null,
+        taskId: r.task_id,
+        captureId: r.capture_id,
+        scanUrl: r.scan_url,
+        submittedAt: r.submitted_at,
         overallQuality: evaluation.overall_quality ?? 'unknown',
         summaryEn: evaluation.summary_en ?? '',
         summaryZh: evaluation.summary_zh ?? '',

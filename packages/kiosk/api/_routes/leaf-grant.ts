@@ -11,10 +11,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from './_lib/admin'
-import { relay } from './_lib/relay'
-
-const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
+import { requireAdmin } from '../_lib/admin.js'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
@@ -25,9 +24,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const studentId = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''
   if (!studentId) return res.status(400).json({ error: 'studentId is required' })
 
-  return relay(res, `${SKILL_GRAPH_URL}/students/${encodeURIComponent(studentId)}/leaves/grant`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req.body ?? {}),
-  })
+  return relay(res, () =>
+    callSkillGraph(`/students/${encodeURIComponent(studentId)}/leaves/grant`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body ?? {}),
+    }),
+  )
 }
