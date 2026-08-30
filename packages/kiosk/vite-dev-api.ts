@@ -92,11 +92,20 @@ export function devApi(): Plugin {
         const url = new URL(req.url ?? '/', 'http://localhost')
         if (!url.pathname.startsWith('/api/')) return next()
 
-        // Only claim routes we actually have a file for, so the existing
-        // proxies to the standalone Python/TS services still work.
-        const name = url.pathname.slice('/api/'.length)
-        const file = path.join(import.meta.dirname, 'api', `${name}.ts`)
-        if (!name || name.includes('..') || !existsSync(file)) return next()
+        /*
+         * One dispatcher, the same one Vercel runs.
+         *
+         * This used to map /api/<name> onto api/<name>.ts and fall through when
+         * no such file existed. That stopped working the moment the routes
+         * moved into api/_routes/ behind a single function: every call fell
+         * through to the SPA, the page got index.html where it expected JSON,
+         * and the kiosk reported "Unexpected token '<'" for the roster. Going
+         * through the entry point instead means local dev routes exactly as
+         * production does, including the mounted skill-graph and worksheet
+         * services, and cannot drift from it again.
+         */
+        const file = path.join(import.meta.dirname, 'api', '_entry.ts')
+        if (!existsSync(file)) return next()
 
         try {
           const mod = (await server.ssrLoadModule(file)) as {
