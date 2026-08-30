@@ -42,6 +42,23 @@ export async function listCameras(): Promise<Camera[]> {
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }))
 }
 
+/**
+ * Is this the lens pointing at the student, on a device that has another one?
+ *
+ * `facingMode` is the only non-guess available. It is a standard track setting
+ * the platform fills in — "user" or "environment" — so it means the same thing
+ * on an iPhone, on an Android, and on whatever the school buys next, with no
+ * dependence on what the vendor decided to name the hardware. Labels are the
+ * fallback for devices that report no facing at all, which is every USB
+ * document camera and laptop webcam.
+ *
+ * `undefined` is not a failure: a webcam that reports nothing is accepted,
+ * because on that machine there is no better answer to hold out for.
+ */
+export function isFacingStudent(facingMode: string | undefined): boolean {
+  return facingMode === 'user'
+}
+
 /** The station's overhead camera — the only one certainly aimed at paper. */
 const DOC_CAM = /okiocam|ipevo|elmo|document/i
 /** What a phone calls the camera on the back of it. */
@@ -252,10 +269,34 @@ export async function startStream(camera: Camera): Promise<MediaStream> {
   attempts.push({ facingMode: { ideal: 'environment' } })
 
   let lastErr: unknown
+  /*
+   * A front-facing stream is kept, not returned, until every other attempt has
+   * been tried. Some devices really do have only a front camera, and a station
+   * that refuses to open anything is worse than one pointed the wrong way — but
+   * it is the last answer, never the first.
+   */
+  let facingStudent: MediaStream | null = null
+
   for (const video of attempts) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video })
       const track = stream.getVideoTracks()[0]
+
+      /*
+       * Check what actually opened, rather than trusting what was asked for.
+       *
+       * This is the part that does not guess. Constraints are a request and
+       * `getSettings()` is the answer: it reports the facing of the track the
+       * platform really gave us. A device that ignores `facingMode` — as iOS
+       * did when asked by deviceId — is caught here instead of quietly
+       * photographing the child.
+       */
+      if (track && !documentCamera && isFacingStudent(track.getSettings().facingMode)) {
+        if (facingStudent) stream.getTracks().forEach((t) => t.stop())
+        else facingStudent = stream
+        continue
+      }
+
       if (track) {
         const mode = streamMode(track)
         // Not fatal — a small stream still captures — but it means this station
@@ -268,6 +309,11 @@ export async function startStream(camera: Camera): Promise<MediaStream> {
     } catch (err) {
       lastErr = err
     }
+  }
+
+  if (facingStudent) {
+    console.warn('[camera] only a front-facing camera is available')
+    return facingStudent
   }
   throw lastErr instanceof Error ? lastErr : new Error('Could not open the camera')
 }

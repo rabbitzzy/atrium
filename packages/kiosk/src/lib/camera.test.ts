@@ -1,6 +1,6 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { preferredCamera, rememberCamera } from './camera'
+import { isFacingStudent, preferredCamera, rememberCamera } from './camera'
 
 /**
  * `preferredCamera` reads a remembered label from localStorage, which Node does
@@ -105,5 +105,23 @@ describe('telling a webcam apart from a phone', () => {
       cam('camera2 0, facing back'),
     ])
     assert.equal(picked?.label, 'camera2 0, facing back')
+  })
+})
+
+describe('what the platform says it opened', () => {
+  test('"user" is the lens pointing at the student', () => {
+    // The one non-guess: a standard track setting, filled in by the platform,
+    // meaning the same thing on an iPhone, an Android, and whatever comes next.
+    assert.equal(isFacingStudent('user'), true)
+  })
+
+  test('"environment" is the one pointed at the work', () => {
+    assert.equal(isFacingStudent('environment'), false)
+  })
+
+  test('a camera that reports no facing is accepted', () => {
+    // Every USB document camera and laptop webcam. There is no better answer
+    // to hold out for on that machine, so refusing would just mean no camera.
+    assert.equal(isFacingStudent(undefined), false)
   })
 })
