@@ -23,9 +23,17 @@ export interface Camera {
  * requests a throwaway stream first and stops it immediately. Without that
  * step the picker shows "Camera 1 / Camera 2" and nobody can tell which is
  * the document camera.
+ *
+ * The probe asks for the rear camera. On a phone `{ video: true }` opens the
+ * front one, so the permission prompt and the first frames were a picture of
+ * the child's face — before any selection had happened. `ideal` rather than
+ * `exact` because a laptop has no environment-facing camera and must not fail
+ * here.
  */
 export async function listCameras(): Promise<Camera[]> {
-  const probe = await navigator.mediaDevices.getUserMedia({ video: true })
+  const probe = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+  })
   probe.getTracks().forEach((t) => t.stop())
 
   const devices = await navigator.mediaDevices.enumerateDevices()
@@ -34,12 +42,24 @@ export async function listCameras(): Promise<Camera[]> {
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }))
 }
 
+/** What a phone calls the camera on the back of it. */
+const REAR = /back|rear|environment|后置/i
+/** …and the one pointed at the face, which must never be picked. */
+const FRONT = /front|user|face|selfie|前置/i
+
 /**
  * Pick the camera to use on load.
  *
  * Matches on label rather than deviceId: macOS rotates deviceId when a USB
- * camera is replugged, but the label ("OKIOCAM S2 Pro") is stable. Falls back
- * to anything that looks like a document camera, then to the first device.
+ * camera is replugged, but the label ("OKIOCAM S2 Pro") is stable.
+ *
+ * The order is a station first, then a phone. A document camera is the most
+ * specific thing we can recognise and the only one that is certainly pointed
+ * at paper. Failing that, anything the device calls a back camera — on an
+ * iPhone `cameras[0]` is the front one, so falling straight through to it
+ * pointed the kiosk at the child instead of their work, with nothing in the UI
+ * to correct it. Last of all the first device, which is only reached when
+ * nothing is labelled either way.
  */
 export function preferredCamera(cameras: Camera[]): Camera | null {
   if (cameras.length === 0) return null
@@ -51,7 +71,14 @@ export function preferredCamera(cameras: Camera[]): Camera | null {
   }
 
   const docCam = cameras.find((c) => /okiocam|ipevo|elmo|document/i.test(c.label))
-  return docCam ?? cameras[0]!
+  if (docCam) return docCam
+
+  const rear = cameras.find((c) => REAR.test(c.label) && !FRONT.test(c.label))
+  if (rear) return rear
+
+  // Better nothing recognisable than something known to be wrong.
+  const notFront = cameras.find((c) => !FRONT.test(c.label))
+  return notFront ?? cameras[0]!
 }
 
 export function rememberCamera(camera: Camera): void {
@@ -174,6 +201,10 @@ export async function startStream(deviceId: string): Promise<MediaStream> {
     attempts.push({ deviceId: { exact: deviceId }, width: { ideal: max.width }, height: { ideal: max.height } })
   }
   attempts.push({ deviceId: { exact: deviceId } })
+  // If that device has gone away — a phone rotating ids between sessions, a
+  // camera unplugged — take the rear camera rather than whatever is default,
+  // which on a phone is the one facing the child.
+  attempts.push({ facingMode: { ideal: 'environment' } })
 
   let lastErr: unknown
   for (const video of attempts) {
