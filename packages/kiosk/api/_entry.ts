@@ -26,13 +26,17 @@
  * the real socket, and `capture-file` can pipe a read stream straight into the
  * response. Routing is an object lookup, which is all it ever needed to be.
  *
- * skill-graph is the exception. It is a Hono app, so it does want a `Request` —
- * built here from the body Vercel already parsed, never from the spent stream.
+ * skill-graph and worksheet-print are the exceptions. Both are Hono apps, so
+ * they do want a `Request` — built here from the body Vercel already parsed,
+ * never from the spent stream. Mounting them is also what keeps them from
+ * needing a machine of their own: neither runs anywhere but inside this
+ * function now.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 import skillGraph from './_routes/skill-graph.js'
+import worksheet from './_routes/worksheet.js'
 import capture from './_routes/capture.js'
 import captureFile from './_routes/capture-file.js'
 import captureResolve from './_routes/capture-resolve.js'
@@ -70,16 +74,26 @@ const ROUTES: Record<string, Handler> = {
   '/api/teacher-queue': teacherQueue,
 }
 
-const SKILL_GRAPH_PREFIX = '/api/skill-graph'
+/** The Hono services mounted alongside the handlers, by the prefix they answer on. */
+const MOUNTED: Array<[string, { fetch: (req: Request) => Response | Promise<Response> }]> = [
+  ['/api/skill-graph', skillGraph],
+  ['/api/worksheet', worksheet],
+]
 
 /**
- * Hand a request to the mounted skill-graph app and write back what it says.
+ * Hand a request to a mounted Hono app and write back what it says.
  *
  * The body comes from `req.body` — already parsed by the runtime — rather than
  * from the request stream, which by this point has nothing left to give.
  */
-async function serveSkillGraph(req: VercelRequest, res: VercelResponse, url: URL) {
-  const path = url.pathname.slice(SKILL_GRAPH_PREFIX.length) || '/'
+async function serveMounted(
+  app: { fetch: (req: Request) => Response | Promise<Response> },
+  prefix: string,
+  req: VercelRequest,
+  res: VercelResponse,
+  url: URL,
+) {
+  const path = url.pathname.slice(prefix.length) || '/'
 
   const headers = new Headers()
   for (const [key, value] of Object.entries(req.headers)) {
@@ -100,7 +114,7 @@ async function serveSkillGraph(req: VercelRequest, res: VercelResponse, url: URL
     }
   }
 
-  const answer = await skillGraph.fetch(new Request(`http://skill-graph${path}${url.search}`, init))
+  const answer = await app.fetch(new Request(`http://mounted${path}${url.search}`, init))
 
   res.statusCode = answer.status
   answer.headers.forEach((value, key) => res.setHeader(key, value))
@@ -121,8 +135,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const route = ROUTES[path]
   if (route) return route(req, res)
 
-  if (path === SKILL_GRAPH_PREFIX || path.startsWith(`${SKILL_GRAPH_PREFIX}/`)) {
-    return serveSkillGraph(req, res, url)
+  for (const [prefix, app] of MOUNTED) {
+    if (path === prefix || path.startsWith(`${prefix}/`)) {
+      return serveMounted(app, prefix, req, res, url)
+    }
   }
 
   return res.status(404).json({ error: 'not_found', path })

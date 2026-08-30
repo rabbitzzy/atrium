@@ -33,13 +33,12 @@ import { useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
 import { beginBusy } from '../lib/busy'
-import { PrintAgentUnreachable, printCard, trayState } from '../lib/printer'
+import { printCardHtml } from '../lib/printer'
 import {
   type GeneratedCard,
   generateCard,
   InsufficientLeaves,
   NoRoomToAssign,
-  previewCard,
   WorksheetUnreachable,
 } from '../lib/worksheet'
 import SimulateCard from './SimulateCard'
@@ -137,23 +136,16 @@ export default function GetCard({
    * rather than onto the screen.
    */
   async function printGeneratedCard(card: GeneratedCard) {
-    // Held jobs let the whole loop be exercised without spending paper. Set at
-    // the station, the way simulate mode is.
-    const hold = localStorage.getItem('atrium.holdPrints') === 'on'
-
     try {
-      const { jobId } = await printCard(card.pdf, {
-        title: `Atrium Card ${card.taskId.slice(0, 8)}`,
-        ...(hold ? { hold: true } : {}),
-      })
-      report({ studentId: student.id, taskId: card.taskId, ok: true, jobId })
+      await printCardHtml(card.html)
+      report({ studentId: student.id, taskId: card.taskId, ok: true })
       setState({ kind: 'printed', leavesLeft: card.leavesLeft })
     } catch (err) {
       report({
         studentId: student.id,
         taskId: card.taskId,
         ok: false,
-        failure: err instanceof PrintAgentUnreachable ? 'unreachable' : 'refused',
+        failure: 'refused',
         detail: err instanceof Error ? err.message : '',
       })
       setState({ kind: 'spent-and-lost' })
@@ -172,27 +164,25 @@ export default function GetCard({
     const done = beginBusy()
     try {
       /*
-       * The tray, before the Leaf.
+       * There is no tray check any more, and its absence is a decision.
        *
-       * This check used to be the first thing `POST /api/card` did, and it has
-       * to stay first wherever it lives: generating spends the Leaf and there is
-       * no refund path, so refusing here is the only refusal that costs a child
-       * nothing. It runs from the browser now because the print agent is on this
-       * machine's LAN and the API route no longer is (`lib/printer.ts`).
-       *
-       * Simulate mode has no tray to check.
+       * It used to run here, before the Leaf: the print agent could ask CUPS
+       * whether the printer was ready, and refusing on an empty tray was the
+       * only refusal that cost a child nothing. A browser cannot ask a printer
+       * anything, and the browser is what prints now, so an empty tray costs a
+       * Leaf and the recovery is a teacher granting one (BHCS-47) — the same
+       * path a print that fails after the spend already took.
        */
-      if (!simulate) {
-        const tray = await trayState()
-        if (!tray || !tray.ready) return setState({ kind: 'no-paper' })
-      }
 
       // The id is minted here so the Card, the print job and the outcome report
       // all name the same task without a round trip to agree on one.
       const taskId = crypto.randomUUID()
 
+      // Same Card either way, and the same Leaf. Simulate mode only changes
+      // what happens to the markup once it arrives.
+      const card = await generateCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
+
       if (simulate) {
-        const card = await previewCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
         onPrinted?.()
         return setState({
           kind: 'preview',
@@ -201,8 +191,6 @@ export default function GetCard({
           leavesLeft: card.leavesLeft,
         })
       }
-
-      const card = await generateCard({ studentId: student.id, taskId, ...(subject ? { subject } : {}) })
       // The Leaf is gone from here on, which is why nothing below this line
       // reports a failure as free.
       onPrinted?.()
