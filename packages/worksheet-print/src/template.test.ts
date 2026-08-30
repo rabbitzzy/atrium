@@ -140,8 +140,18 @@ describe('renderFixedCard', () => {
   })
 
   it('draws four corner marks, one of them distinguishable', () => {
-    expect((html.match(/class="fid/g) ?? [])).toHaveLength(4)
-    expect((html.match(/class="fid ring"/g) ?? [])).toHaveLength(1)
+    expect(html.match(/class="fid"/g) ?? []).toHaveLength(4)
+    // The bottom-right one encloses white, so a corrected image knows which
+    // way up the Card was photographed.
+    expect(html.match(/fill="#fff"/g) ?? []).toHaveLength(1)
+  })
+
+  it('draws the corner marks as content, not as a background', () => {
+    // A browser prints with "Background graphics" off by default, and the kiosk
+    // browser prints this HTML directly. A mark painted with `background` would
+    // simply not appear, and every Card would come out unscannable.
+    expect(html).toContain('<svg class="fid"')
+    expect(html).not.toMatch(/\.fid[^}]*background/)
   })
 
   it('places every answer box at its computed millimetre', () => {
