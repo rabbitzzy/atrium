@@ -42,10 +42,20 @@ export async function listCameras(): Promise<Camera[]> {
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }))
 }
 
+/** The station's overhead camera — the only one certainly aimed at paper. */
+const DOC_CAM = /okiocam|ipevo|elmo|document/i
 /** What a phone calls the camera on the back of it. */
 const REAR = /back|rear|environment|后置/i
-/** …and the one pointed at the face, which must never be picked. */
-const FRONT = /front|user|face|selfie|前置/i
+/**
+ * …and the one pointed at the face, which must never be picked on a phone.
+ *
+ * Deliberately narrow. The first version matched bare `face`, which also
+ * matches "FaceTime HD Camera" — a perfectly good webcam, and on a station the
+ * one an operator may have chosen on purpose. Matching it as front-facing threw
+ * that choice away. These are the words a device uses when it means the lens
+ * pointing at the person: "Front Camera" on iOS, "facing front" on Android.
+ */
+const FRONT = /(^|\W)(front|selfie)(\W|$)|facing front|user facing|前置/i
 
 /**
  * Pick the camera to use on load.
@@ -67,10 +77,17 @@ export function preferredCamera(cameras: Camera[]): Camera | null {
   const remembered = localStorage.getItem(REMEMBERED_KEY)
   if (remembered) {
     const match = cameras.find((c) => c.label === remembered)
-    if (match) return match
+    // A remembered front camera is not a preference, it is a record of this
+    // bug: `rememberCamera` runs after every successful stream, so a single
+    // session that opened the front lens pinned it for every session after —
+    // including every session since this heuristic was added, which is why
+    // fixing the ordering alone changed nothing on a phone already stuck.
+    if (match && !(FRONT.test(match.label) && cameras.some((c) => !FRONT.test(c.label)))) {
+      return match
+    }
   }
 
-  const docCam = cameras.find((c) => /okiocam|ipevo|elmo|document/i.test(c.label))
+  const docCam = cameras.find((c) => DOC_CAM.test(c.label))
   if (docCam) return docCam
 
   const rear = cameras.find((c) => REAR.test(c.label) && !FRONT.test(c.label))
@@ -82,6 +99,10 @@ export function preferredCamera(cameras: Camera[]): Camera | null {
 }
 
 export function rememberCamera(camera: Camera): void {
+  // Remembering the front camera is how a phone gets stuck on it, and there is
+  // no case where the station should deliberately reopen the lens pointed at
+  // the student.
+  if (FRONT.test(camera.label)) return
   localStorage.setItem(REMEMBERED_KEY, camera.label)
 }
 
@@ -178,7 +199,9 @@ export function streamMode(track: MediaStreamTrack): StreamMode {
  * throwaway stream is the only way to read capabilities, since they are a
  * property of a live track rather than of the device.
  */
-export async function startStream(deviceId: string): Promise<MediaStream> {
+export async function startStream(camera: Camera): Promise<MediaStream> {
+  const { deviceId, label } = camera
+  const documentCamera = DOC_CAM.test(label)
   let max: { width: number; height: number } | null = null
 
   try {
@@ -196,6 +219,28 @@ export async function startStream(deviceId: string): Promise<MediaStream> {
   // on this camera, but need not in general) we want a clean failure rather
   // than a silently downscaled composite.
   const attempts: MediaTrackConstraints[] = []
+
+  /*
+   * On a phone, ask by facing rather than by device.
+   *
+   * Picking the rear camera by deviceId is what a station does, and iOS does
+   * not reliably honour it: the label read "Back Camera", the id belonged to
+   * it, and Safari opened the front lens regardless. `facingMode: exact` is the
+   * constraint it does respect. So it goes first for anything that is not a
+   * document camera, and fails harmlessly on a laptop with no environment
+   * facing lens — one refused request, then the deviceId path below.
+   */
+  if (!documentCamera) {
+    if (max) {
+      attempts.push({
+        facingMode: { exact: 'environment' },
+        width: { ideal: max.width },
+        height: { ideal: max.height },
+      })
+    }
+    attempts.push({ facingMode: { exact: 'environment' } })
+  }
+
   if (max) {
     attempts.push({ deviceId: { exact: deviceId }, width: { exact: max.width }, height: { exact: max.height } })
     attempts.push({ deviceId: { exact: deviceId }, width: { ideal: max.width }, height: { ideal: max.height } })

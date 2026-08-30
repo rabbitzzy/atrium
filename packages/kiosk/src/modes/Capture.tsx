@@ -407,7 +407,7 @@ export default function Capture({ student, onSwitchStudent }: Props) {
       }
 
       stopCamera()
-      const stream = await startStream(target.deviceId)
+      const stream = await startStream(target)
       if (seq !== openSeq.current) {
         stream.getTracks().forEach((t) => t.stop())
         return

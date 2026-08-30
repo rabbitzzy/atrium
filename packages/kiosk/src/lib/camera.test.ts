@@ -1,6 +1,6 @@
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { preferredCamera } from './camera'
+import { preferredCamera, rememberCamera } from './camera'
 
 /**
  * `preferredCamera` reads a remembered label from localStorage, which Node does
@@ -56,9 +56,54 @@ describe('which camera the station opens', () => {
     assert.equal(picked?.label, 'FaceTime HD Camera')
   })
 
+  test('a remembered FRONT camera is ignored while a rear one exists', () => {
+    // The bug that survived the first fix: rememberCamera runs after every
+    // successful stream, so one session on the front lens pinned it for good.
+    store.set('atrium.camera.label', 'Front Camera')
+    const picked = preferredCamera([cam('Front Camera'), cam('Back Camera')])
+    assert.equal(picked?.label, 'Back Camera')
+  })
+
+  test('a remembered front camera still wins when it is the only camera', () => {
+    store.set('atrium.camera.label', 'Front Camera')
+    const picked = preferredCamera([cam('Front Camera')])
+    assert.equal(picked?.label, 'Front Camera')
+  })
+
   test('a remembered camera that is no longer plugged in is ignored', () => {
     store.set('atrium.camera.label', 'OKIOCAM S2 Pro')
     const picked = preferredCamera([cam('Front Camera'), cam('Back Camera')])
     assert.equal(picked?.label, 'Back Camera')
+  })
+})
+
+describe('what the station remembers', () => {
+  test('a document camera is remembered', () => {
+    rememberCamera(cam('OKIOCAM S2 Pro'))
+    assert.equal(store.get('atrium.camera.label'), 'OKIOCAM S2 Pro')
+  })
+
+  test('the front camera is never remembered', () => {
+    // Otherwise a single accidental front-camera session pins the phone to it.
+    rememberCamera(cam('Front Camera'))
+    assert.equal(store.get('atrium.camera.label'), undefined)
+  })
+})
+
+describe('telling a webcam apart from a phone', () => {
+  test('"FaceTime HD Camera" is not a front camera', () => {
+    // It contains "face", which an earlier pattern matched — and on a station
+    // that threw away an operator's deliberate choice of it.
+    store.set('atrium.camera.label', 'FaceTime HD Camera')
+    const picked = preferredCamera([cam('FaceTime HD Camera'), cam('OKIOCAM S2 Pro')])
+    assert.equal(picked?.label, 'FaceTime HD Camera')
+  })
+
+  test('Android phrasing is still recognised', () => {
+    const picked = preferredCamera([
+      cam('camera2 1, facing front'),
+      cam('camera2 0, facing back'),
+    ])
+    assert.equal(picked?.label, 'camera2 0, facing back')
   })
 })
