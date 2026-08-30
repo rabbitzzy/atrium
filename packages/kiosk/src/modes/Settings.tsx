@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Student } from '@atrium/schema'
+import { adminHeader } from '../lib/admin'
 
 export default function Settings() {
   const [on, setOn] = useState(() => localStorage.getItem('atrium.simulate') === 'on')
@@ -35,10 +36,9 @@ export default function Settings() {
 
   async function clear(studentId: string) {
     setCleared(null)
-    const token = localStorage.getItem('atrium.adminToken')
     const res = await fetch(`/api/simulated?studentId=${encodeURIComponent(studentId)}`, {
       method: 'DELETE',
-      headers: token ? { 'x-admin-token': token } : {},
+      headers: adminHeader(),
     })
     const body = (await res.json()) as { removedAttempts?: number }
     setCleared(
@@ -102,6 +102,7 @@ const toggleBtn: React.CSSProperties = {
   borderRadius: 12, border: '2px solid #c8963e', cursor: 'pointer',
 }
 const p: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.6, color: '#5a5a6a', margin: '10px 0 0' }
+
 const select: React.CSSProperties = {
   padding: '9px 12px', fontSize: 15, fontFamily: 'DM Sans, sans-serif',
   borderRadius: 9, border: '1px solid #d0cdc8', background: '#fff',
