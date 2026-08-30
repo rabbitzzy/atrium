@@ -23,7 +23,7 @@
  */
 
 import { Hono } from 'hono'
-import { handle } from 'hono/vercel'
+import { getRequestListener } from '@hono/node-server'
 import { fromVercel } from './_lib/vercel-handler.js'
 
 import skillGraph from './_routes/skill-graph.js'
@@ -75,4 +75,18 @@ for (const [path, handler] of routes) {
 
 app.route('/api/skill-graph', skillGraph)
 
-export default handle(app)
+/*
+ * A Node listener, not `hono/vercel`'s web handler.
+ *
+ * Vercel invokes this function with Node's (req, res) — the same pair the
+ * route handlers themselves expect. A handler that takes a `Request` and
+ * returns a `Response` is simply called with the wrong arguments: the returned
+ * Response is dropped, nothing is ever written to `res`, and the request hangs
+ * until the function times out. That is not a failure that shows up in a build
+ * log; it shows up as a kiosk that waits sixty seconds and gives up.
+ *
+ * `getRequestListener` is the adapter for exactly this: it builds the Request
+ * from the Node one, runs the app, and writes the Response back — including
+ * streaming, which `capture`'s SSE depends on.
+ */
+export default getRequestListener(app.fetch)
