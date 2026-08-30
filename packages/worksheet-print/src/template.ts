@@ -216,14 +216,35 @@ export interface CardMeta {
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/** How much white the bottom-right ring encloses. */
+const RING_INSET = 1.6
+
+/**
+ * Drawn as SVG rather than a filled `<div>`, because of who prints the Card.
+ *
+ * A browser's print dialog has "Background graphics" switched off by default,
+ * and `background: #000` is exactly what that setting suppresses. Headless
+ * Chromium never cared — `page.pdf` was told `printBackground: true` — but the
+ * kiosk browser prints the same HTML directly now, and a Card whose corner
+ * marks did not print is a Card that cannot be scanned back. Everything the
+ * evaluator does with a photograph starts by finding these four.
+ *
+ * An `<svg>` is content, not decoration, so it prints under any setting. The
+ * QR code is already an `<img>` for the same reason, and the answer slots keep
+ * their borders, which print too.
+ */
 function fiducialHtml(): string {
+  const s = FIDUCIAL_SIZE
   return fiducialRegions()
     .map((f) => {
       // Bottom-right is a ring so a corrected image knows which way up it is.
       // A Card photographed upside down is otherwise perfectly plausible.
       const ring = f.corner === 'bottom-right'
-      const style = `left:${(f.x * PAGE_W).toFixed(2)}mm;top:${(f.y * PAGE_H).toFixed(2)}mm;width:${FIDUCIAL_SIZE}mm;height:${FIDUCIAL_SIZE}mm`
-      return `<div class="fid${ring ? ' ring' : ''}" style="${style}"></div>`
+      const style = `left:${(f.x * PAGE_W).toFixed(2)}mm;top:${(f.y * PAGE_H).toFixed(2)}mm;width:${s}mm;height:${s}mm`
+      const hole = ring
+        ? `<rect x="${RING_INSET}" y="${RING_INSET}" width="${(s - RING_INSET * 2).toFixed(2)}" height="${(s - RING_INSET * 2).toFixed(2)}" fill="#fff"/>`
+        : ''
+      return `<svg class="fid" style="${style}" viewBox="0 0 ${s} ${s}" xmlns="http://www.w3.org/2000/svg"><rect width="${s}" height="${s}" fill="#000"/>${hole}</svg>`
     })
     .join('')
 }
@@ -259,11 +280,7 @@ export function renderFixedCard(problems: CardProblem[], meta: CardMeta): string
 
   /* Corner marks. Pure black on white: the highest contrast the printer can
      give the camera, which is the whole point of them being here. */
-  .fid { position: absolute; background: #000; }
-  .fid.ring { background: #000; border: 1.6mm solid #000; }
-  .fid.ring::after {
-    content: ''; position: absolute; inset: 1.6mm; background: #fff;
-  }
+  .fid { position: absolute; display: block; }
 
   .header { position: absolute; left: ${FIDUCIAL_INSET + FIDUCIAL_SIZE + 4}mm; top: ${FIDUCIAL_INSET}mm; right: ${FIDUCIAL_INSET + FIDUCIAL_SIZE + 4}mm; height: 34mm; }
   .title { font-size: 6mm; font-weight: 700; margin: 0 0 1mm; letter-spacing: -0.02em; }
