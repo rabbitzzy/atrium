@@ -36,20 +36,29 @@ const TIERS = [
   { id: 'not-yet', label: 'Not yet', zh: '还不会', bg: '#f2f0ec', color: '#5a5a6a' },
 ] as const
 
-/** The Card's own layout puts five questions on a page (BHCS-36). */
-const QUESTIONS = [1, 2, 3, 4, 5]
-
 export default function SimulateCard({
   student,
   taskId,
   html,
   leavesLeft,
+  questions,
   onDone,
 }: {
   student: Student
   taskId: string
   html: string
   leavesLeft: number
+  /**
+   * How many questions this Card actually has.
+   *
+   * This used to be a hardcoded five, on the belief that a Card holds five
+   * questions. It holds the number its grade band's layout holds — five, seven
+   * or nine (`template.ts` LAYOUTS) — so on a middle-band Card the last two
+   * had no row to mark, and the attempt posted to skill-graph simply did not
+   * mention them. Not a display bug: unmarked questions are absent from the
+   * BKT update, so the Card counted for less than the child did.
+   */
+  questions: number
   onDone: () => void
 }) {
   const [marks, setMarks] = useState<Record<number, string>>({})
@@ -107,7 +116,7 @@ export default function SimulateCard({
           <div style={{ fontSize: 15, fontWeight: 700 }}>
             How did each one go? <span style={{ opacity: 0.7, fontWeight: 500 }}>每一题做得怎么样？</span>
           </div>
-          {QUESTIONS.map((n) => (
+          {Array.from({ length: questions }, (_, i) => i + 1).map((n) => (
             <div key={n} style={row}>
               <span style={{ fontWeight: 700, minWidth: 22 }}>{n}</span>
               {TIERS.map((t) => {

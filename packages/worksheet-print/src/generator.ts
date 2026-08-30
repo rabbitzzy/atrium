@@ -54,7 +54,7 @@ export interface CardRequest {
  */
 export async function generateCard(
   req: CardRequest,
-): Promise<{ html: string; balance: number }> {
+): Promise<{ html: string; balance: number; questions: number }> {
   const rooms = await fetchRooms(req.kcIds)
   const difficulty = req.difficulty ?? Math.max(...rooms.map((r) => r.difficulty))
 
@@ -103,7 +103,10 @@ export async function generateCard(
   // never could tell reliably — that is why the recovery is a teacher grant —
   // but the tray check that used to precede this is gone with the print agent.
   const balance = await spendLeaf(req.studentId)
-  return { html, balance }
+  // How many questions are actually on the page. The count is the layout's, and
+  // the layout is the student's grade band — five, seven or nine. Anything
+  // downstream that assumes one of those numbers is wrong for the other two.
+  return { html, balance, questions: problems.length }
 }
 
 /**

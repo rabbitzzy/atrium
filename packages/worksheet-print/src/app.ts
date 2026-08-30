@@ -158,7 +158,7 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
       reason = { en: landing.reasonEn, zh: landing.reasonZh }
     }
 
-    const { html, balance: remaining } = await generateCard({
+    const { html, balance: remaining, questions } = await generateCard({
       studentId: body.studentId,
       taskId: body.taskId,
       kcIds,
@@ -176,6 +176,9 @@ app.post('/generate', zValidator('json', GenerateSchema), async (c) => {
       taskId: body.taskId,
       rooms: kcIds,
       html,
+      // How many questions are on the page — the grade band's layout decides,
+      // so it is five, seven or nine and never a constant the caller can assume.
+      questions,
       leavesLeft: remaining,
       ...(reason ? { reason } : {}),
     })

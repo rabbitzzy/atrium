@@ -34,6 +34,13 @@ export interface GeneratedCard {
   html: string
   rooms: string[]
   leavesLeft: number
+  /**
+   * How many questions are on the page — five, seven or nine, from the grade
+   * band's layout. Carried rather than assumed: the simulate screen used to
+   * hardcode five, so a middle-band Card's last two questions had no way to be
+   * marked and were silently dropped from the attempt.
+   */
+  questions: number
 }
 
 /** The child has none left. Not an error, and never rendered as a refusal. */
@@ -101,11 +108,15 @@ export async function generateCard(args: {
     html: string
     rooms?: string[]
     leavesLeft?: number
+    questions?: number
   }
   return {
     taskId: body.taskId ?? args.taskId,
     html: body.html,
     rooms: body.rooms ?? [],
     leavesLeft: body.leavesLeft ?? 0,
+    // Fall back to counting the answer boxes rather than to a guess: a wrong
+    // count here means questions a child cannot mark.
+    questions: body.questions ?? (body.html.match(/class="answer"/g) ?? []).length,
   }
 }

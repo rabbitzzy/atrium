@@ -102,7 +102,7 @@ type Outcome =
   /** Carries the door they pressed, so the wait can name it back to them. */
   | { kind: 'working'; subject?: string }
   | { kind: 'printed'; leavesLeft: number }
-  | { kind: 'preview'; taskId: string; html: string; leavesLeft: number }
+  | { kind: 'preview'; taskId: string; html: string; leavesLeft: number; questions: number }
   | { kind: 'nothing-in-subject'; subject: string }
   | { kind: 'no-leaves'; balance: number; bootstrapped: boolean }
   | { kind: 'nothing-to-do' }
@@ -189,6 +189,7 @@ export default function GetCard({
           taskId: card.taskId,
           html: card.html,
           leavesLeft: card.leavesLeft,
+          questions: card.questions,
         })
       }
       // The Leaf is gone from here on, which is why nothing below this line
@@ -237,6 +238,7 @@ export default function GetCard({
         taskId={state.taskId}
         html={state.html}
         leavesLeft={state.leavesLeft}
+        questions={state.questions}
         onDone={() => {
           onPrinted?.()
           setState({ kind: 'idle' })
