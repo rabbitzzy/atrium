@@ -13,7 +13,7 @@
  * the reply, not how it was fetched.
  */
 
-import { skillGraphWhere } from './skill-graph'
+import { skillGraphWhere } from './skill-graph.js'
 
 export async function relay(
   res: { status: (n: number) => { json: (b: unknown) => unknown } },

@@ -33,7 +33,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { atrium, rows } from '../_lib/db'
+import { atrium, rows } from '../_lib/db.js'
 
 /** A term's worth of visits, and enough to fill a scrolling grid many times. */
 const LIMIT = 120

@@ -11,7 +11,7 @@
  */
 
 import type { GeminiSchema } from '@atrium/schema'
-import { parsePartialJson } from './partial-json'
+import { parsePartialJson } from './partial-json.js'
 
 const MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
 const endpoint = (method: string) =>

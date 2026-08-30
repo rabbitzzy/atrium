@@ -18,8 +18,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { relay } from '../_lib/relay'
-import { callSkillGraph } from '../_lib/skill-graph'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const studentId = typeof req.query['studentId'] === 'string' ? req.query['studentId'] : ''

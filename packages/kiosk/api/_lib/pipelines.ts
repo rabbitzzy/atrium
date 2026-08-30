@@ -8,7 +8,7 @@
  */
 
 import type { CaptureAppServer, CaptureContext, RecordArgs, SystemPrompt } from '@atrium/schema'
-import { visionJson, visionJsonStream } from './gemini'
+import { visionJson, visionJsonStream } from './gemini.js'
 
 export interface PipelineOutcome {
   status: 'ok' | 'skipped' | 'failed'

@@ -8,11 +8,11 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from '../_lib/admin'
+import { requireAdmin } from '../_lib/admin.js'
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
-import { activeBackend, localRoot } from '../_lib/storage'
+import { activeBackend, localRoot } from '../_lib/storage.js'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',

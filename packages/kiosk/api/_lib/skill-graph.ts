@@ -24,7 +24,7 @@
  * deployment that really does put it elsewhere.
  */
 
-import app from '../_routes/skill-graph'
+import app from '../_routes/skill-graph.js'
 
 /**
  * `path` is the service's own route, e.g. `/students/abc/leaves` — the mount

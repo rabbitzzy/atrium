@@ -15,8 +15,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from '../_lib/admin'
-import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph'
+import { requireAdmin } from '../_lib/admin.js'
+import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return

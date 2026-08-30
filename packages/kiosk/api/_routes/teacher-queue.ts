@@ -13,10 +13,10 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from '../_lib/admin'
-import { relay } from '../_lib/relay'
-import { atrium, rows } from '../_lib/db'
-import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph'
+import { requireAdmin } from '../_lib/admin.js'
+import { relay } from '../_lib/relay.js'
+import { atrium, rows } from '../_lib/db.js'
+import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return

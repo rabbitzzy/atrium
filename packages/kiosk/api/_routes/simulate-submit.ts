@@ -15,8 +15,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { relay } from '../_lib/relay'
-import { callSkillGraph } from '../_lib/skill-graph'
+import { relay } from '../_lib/relay.js'
+import { callSkillGraph } from '../_lib/skill-graph.js'
 
 const TIERS = ['mastered', 'shaky', 'needs-help', 'not-yet'] as const
 type Tier = (typeof TIERS)[number]
