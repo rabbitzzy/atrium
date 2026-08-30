@@ -253,7 +253,7 @@ const sheet: React.CSSProperties = {
   position: 'absolute',
   inset: 0,
   background: '#f8f7f4',
-  padding: '24px 28px 40px',
+  padding: 'clamp(12px, 4vw, 24px) clamp(12px, 4vw, 28px) 40px',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',

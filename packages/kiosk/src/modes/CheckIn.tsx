@@ -105,7 +105,7 @@ export default function CheckIn({ onCheckIn }: Props) {
         student's real ID, which we can reattach later.
       */}
       {errMsg && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: 380 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', maxWidth: 380 }}>
           <div style={{ padding: 16, background: '#fff8ee', border: '1px solid #f0d9a8', borderRadius: 12 }}>
             <strong style={{ color: '#8a6a00', fontSize: 14 }}>Roster unavailable</strong>
             <p style={{ margin: '6px 0 0', fontSize: 13, color: '#8a6a00' }}>{errMsg}</p>
@@ -134,9 +134,11 @@ export default function CheckIn({ onCheckIn }: Props) {
       )}
 
       {students && (
-        // Fixed-width column: `search` is width:100%, so it needs a bounded
-        // parent or it stretches to the viewport.
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: 360 }}>
+        // Bounded, not fixed: `search` is width:100%, so it needs a parent with
+        // a limit or it stretches to the viewport — but a hard 360 is wider
+        // than a phone once padding is counted, and pushed the whole check-in
+        // off the side of the screen.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', maxWidth: 360 }}>
           <input
             autoFocus
             value={query}

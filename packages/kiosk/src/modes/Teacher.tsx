@@ -230,7 +230,7 @@ const page: React.CSSProperties = {
   fontFamily: 'DM Sans, sans-serif',
   maxWidth: 860,
   margin: '0 auto',
-  padding: '32px 24px 64px',
+  padding: 'clamp(16px, 5vw, 32px) clamp(12px, 4vw, 24px) 64px',
   color: '#1a1a2e',
 }
 const card: React.CSSProperties = {

@@ -236,7 +236,7 @@ export default function Placement() {
                 <span style={{ fontFamily: 'ui-monospace, monospace', minWidth: 40 }}>
                   {s.masteryProb.toFixed(2)}
                 </span>
-                <span style={{ minWidth: 250 }}>{s.kcId}</span>
+                <span style={{ minWidth: 'min(250px, 60vw)', wordBreak: 'break-word' }}>{s.kcId}</span>
                 <span style={{ color: '#86838f' }}>{s.basis}</span>
               </div>
             ))}
