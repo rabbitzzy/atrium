@@ -148,3 +148,26 @@ export async function uploadToDrive(args: {
     url: file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`,
   }
 }
+
+/**
+ * Read a capture back out of Drive.
+ *
+ * The upload records `webViewLink`, which is a Drive *page* — fine to open in a
+ * tab, useless as an `<img src>`, which is what My Work and the admin gallery
+ * actually put it in. Every thumbnail was a broken image.
+ *
+ * The alternative is making the files link-shareable and using Drive's
+ * thumbnail host, which would put children's work behind a guessable public
+ * URL. So the bytes come back through the deployment instead, on the same
+ * credential that wrote them, and the files stay private.
+ */
+export async function downloadFromDrive(
+  fileId: string,
+): Promise<{ body: ReadableStream<Uint8Array> | null; contentType: string; contentLength: string | null }> {
+  const res = await driveFetch(`${FILES_URL}/${encodeURIComponent(fileId)}?alt=media`, { method: 'GET' })
+  return {
+    body: res.body,
+    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+    contentLength: res.headers.get('content-length'),
+  }
+}

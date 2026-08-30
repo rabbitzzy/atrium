@@ -74,5 +74,28 @@ async function storeLocally(req: StoreRequest): Promise<StoredFile> {
 export async function storeCapture(req: StoreRequest): Promise<StoredFile> {
   if (activeBackend() === 'local') return storeLocally(req)
   const file = await uploadToDrive(req)
-  return { backend: 'drive', id: file.fileId, url: file.url }
+  /*
+   * Our own URL, not Drive's. `file.url` is the webViewLink — a page, not a
+   * picture — and every consumer of this puts it in an `<img src>`. Serving the
+   * bytes through /api/capture-file keeps the file private and gives both
+   * backends the same shape of answer.
+   */
+  return { backend: 'drive', id: file.fileId, url: `/api/capture-file?id=${encodeURIComponent(file.fileId)}` }
+}
+
+/**
+ * A URL a browser can put in an `<img>`, for a row that may predate that being
+ * true.
+ *
+ * Captures stored before this route learned to serve Drive recorded Drive's
+ * `webViewLink` — a page, not a picture. Rewriting on read fixes the ones
+ * already in the table without a migration, and leaves local paths and
+ * already-correct URLs alone.
+ */
+export function servableUrl(storedUrl: string, storageId?: string | null): string {
+  if (!storedUrl.startsWith('https://drive.google.com/')) return storedUrl
+  // The file id is the reliable part; fall back to digging it out of the link
+  // when the row's storage_id was not selected alongside it.
+  const id = storageId || storedUrl.match(/\/d\/([^/]+)/)?.[1]
+  return id ? `/api/capture-file?id=${encodeURIComponent(id)}` : storedUrl
 }

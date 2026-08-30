@@ -17,6 +17,7 @@ import { requireAdmin } from '../_lib/admin.js'
 import { relay } from '../_lib/relay.js'
 import { atrium, rows } from '../_lib/db.js'
 import { callSkillGraph, skillGraphWhere } from '../_lib/skill-graph.js'
+import { servableUrl } from '../_lib/storage.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!requireAdmin(req, res)) return
@@ -73,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const item of queue.items) {
       const cap = item.captureId ? byId.get(item.captureId) : undefined
       if (!cap) continue
-      item.scanUrl = item.scanUrl ?? cap.storage_url
+      item.scanUrl = item.scanUrl ?? servableUrl(cap.storage_url)
       ;(item as { studentName?: string }).studentName = cap.student_name
     }
   }
