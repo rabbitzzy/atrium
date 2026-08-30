@@ -46,6 +46,7 @@ import { qc } from '@atrium/app-worksheet/tiers'
 import Placement from './Placement'
 import StudentState from './StudentState'
 import Settings from './Settings'
+import { adminHeader } from '../lib/admin'
 
 interface Question {
   number?: number
@@ -212,10 +213,6 @@ export default function Teacher() {
   )
 }
 
-function adminHeader(): Record<string, string> {
-  const t = localStorage.getItem('atrium.adminToken')
-  return t ? { 'x-admin-token': t } : {}
-}
 
 const tabBtn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px',
