@@ -7,9 +7,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from './_lib/admin'
-import { atrium } from './_lib/db'
-import { APP_IDS } from './_lib/registry'
+import { requireAdmin } from '../_lib/admin'
+import { atrium } from '../_lib/db'
+import { APP_IDS } from '../_lib/registry'
 
 const MAX_LIMIT = 200
 

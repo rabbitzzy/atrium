@@ -13,9 +13,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { requireAdmin } from './_lib/admin'
-import { relay } from './_lib/relay'
-import { atrium, rows } from './_lib/db'
+import { requireAdmin } from '../_lib/admin'
+import { relay } from '../_lib/relay'
+import { atrium, rows } from '../_lib/db'
 
 const SKILL_GRAPH_URL = process.env['SKILL_GRAPH_URL'] ?? 'http://127.0.0.1:3001'
 

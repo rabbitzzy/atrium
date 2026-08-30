@@ -20,11 +20,11 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { CaptureAppServer, CaptureResponse, Student } from '@atrium/schema'
-import { atrium } from './_lib/db'
-import { storeCapture } from './_lib/storage'
-import { runPipeline, runRecord } from './_lib/pipelines'
-import { APP_IDS, appById } from './_lib/registry'
-import { openSse } from './_lib/sse'
+import { atrium } from '../_lib/db'
+import { storeCapture } from '../_lib/storage'
+import { runPipeline, runRecord } from '../_lib/pipelines'
+import { APP_IDS, appById } from '../_lib/registry'
+import { openSse } from '../_lib/sse'
 
 interface CaptureBody {
   imageBase64?: string
