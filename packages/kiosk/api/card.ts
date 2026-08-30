@@ -1,5 +1,5 @@
 /**
- * POST /api/card — the child asks for work, and paper comes out.
+ * POST /api/card — the child asks for work, and a Card comes back.
  *
  * The last missing edge of the flywheel. Everything on either side of this has
  * worked for a while and nothing joined them: the planner knows what a student
@@ -7,7 +7,7 @@
  * a PDF on paper, and no code path ran the three in order. A child at the
  * station could scan work but never receive any.
  *
- * ── The order is the design ──
+ * ── The order is still the design; the printer half of it moved ──
  *
  * 1. Is the printer able to print at all?
  * 2. Generate — which picks the Room, writes the problems, registers the task
@@ -20,19 +20,26 @@
  * failure is now *detectable*, but nothing yet acts on one, and the recovery is
  * a teacher granting a replacement.
  *
- * So the cheapest thing this can do for a child is refuse early. An empty tray
- * is the most likely failure in a school, it is knowable in one call before
- * anything is spent, and a Leaf lost to it would be indistinguishable to a
- * seven-year-old from the machine eating their work.
+ * So the cheapest thing the station can do for a child is refuse early. An
+ * empty tray is the most likely failure in a school, it is knowable in one call
+ * before anything is spent, and a Leaf lost to it would be indistinguishable to
+ * a seven-year-old from the machine eating their work.
  *
- * Held jobs are supported so this can be exercised without spending paper.
+ * Steps 1 and 3 now run in the browser instead of here, because the print agent
+ * lives on the kiosk's LAN and this route does not any more — see
+ * `src/lib/printer.ts` for the whole reason. The ordering they protect is
+ * unchanged and it is still an ordering: `GetCard` checks the tray before it
+ * calls this route, and this route spends the Leaf only once the PDF exists.
+ *
+ * What is left here is step 2, and the response is the Card itself: the PDF as
+ * bytes, with what the kiosk needs to talk about it in headers. Simulate mode
+ * still answers JSON, because a rehearsal has no paper to return.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { randomUUID } from 'node:crypto'
 
 const WORKSHEET_URL = process.env['WORKSHEET_PRINT_URL'] ?? 'http://127.0.0.1:3002'
-const PRINT_AGENT_URL = process.env['PRINT_AGENT_URL'] ?? 'http://127.0.0.1:3003'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -42,7 +49,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const body = (req.body ?? {}) as {
     studentId?: string
-    hold?: boolean
     subject?: string
     /** Simulate mode: preview on screen, spend a Leaf, use no paper. */
     preview?: boolean
@@ -50,20 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const studentId = body.studentId
   if (!studentId) return res.status(400).json({ error: 'studentId is required' })
 
-  // 1. The tray, before the Leaf — skipped in simulate mode, which has no tray.
-  if (!body.preview) try {
-    const health = await fetch(`${PRINT_AGENT_URL}/health`)
-    const h = (await health.json()) as { ready?: boolean; printer?: string | null }
-    if (!h.ready) {
-      return res.status(503).json({
-        error: 'printer_not_ready',
-        printer: h.printer ?? null,
-        spentLeaf: false,
-      })
-    }
-  } catch {
-    return res.status(503).json({ error: 'print_agent_unreachable', spentLeaf: false })
-  }
+  // 1. The tray was checked by the caller, on the LAN the printer is on.
 
   // 2. Generate. This is where a Leaf goes.
   const taskId = randomUUID()
@@ -118,35 +111,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(503).json({ error: 'worksheet_service_unreachable', spentLeaf: false })
   }
 
-  // 3. Print. Past this point a Leaf has been spent, so every failure says so —
-  //    the kiosk has to tell a teacher rather than quietly asking the child to
-  //    try again, which would cost them a second Leaf for the same Card.
-  try {
-    const query = new URLSearchParams({ title: `Atrium Card ${taskId.slice(0, 8)}` })
-    if (body.hold) query.set('hold', '1')
-    const printed = await fetch(`${PRINT_AGENT_URL}/print?${query}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/pdf' },
-      body: new Uint8Array(pdf),
-    })
-    if (!printed.ok) {
-      const detail = await printed.text()
-      return res.status(502).json({
-        error: 'print_failed',
-        detail: detail.slice(0, 200),
-        spentLeaf: true,
-        taskId,
-      })
-    }
-    const job = (await printed.json()) as { jobId?: string }
-    return res.status(200).json({
-      taskId,
-      jobId: job.jobId ?? null,
-      rooms: rooms ? rooms.split(',') : [],
-      leavesLeft,
-      spentLeaf: true,
-    })
-  } catch {
-    return res.status(503).json({ error: 'print_agent_unreachable', spentLeaf: true, taskId })
-  }
+  // 3. Hand the Card back for the browser to print. Past this point a Leaf has
+  //    been spent, and the caller is the one who now learns whether paper came
+  //    out — so it reports that back to /api/print-outcome rather than a
+  //    failure being known only to the child standing at the station.
+  //
+  //    The counts ride in headers because the body is the PDF. They are the
+  //    same values the JSON response used to carry.
+  res.setHeader('content-type', 'application/pdf')
+  res.setHeader('x-atrium-task-id', taskId)
+  res.setHeader('x-atrium-leaves', String(leavesLeft ?? 0))
+  if (rooms) res.setHeader('x-atrium-rooms', rooms)
+  return res.status(200).send(pdf)
 }

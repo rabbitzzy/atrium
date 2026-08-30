@@ -87,6 +87,33 @@ function run(cmd: string, args: string[], stdin?: Buffer): Promise<{ code: numbe
 }
 
 const app = new Hono()
+
+/**
+ * Let a page served over HTTPS talk to this agent on the loopback.
+ *
+ * The kiosk UI is no longer served from this machine — on Vercel it comes from
+ * a public origin, and the browser rather than the server is what hands a Card
+ * to the printer (see packages/kiosk/src/lib/printer.ts for why the connection
+ * runs in that direction). That request crosses from a public origin to a
+ * private address, and Chrome guards that crossing with an extra preflight: it
+ * asks with `Access-Control-Request-Private-Network` and refuses unless the
+ * answer comes back with the matching allow.
+ *
+ * Ordinary CORS is not enough on its own and neither is loopback's usual
+ * exemption from mixed-content blocking. Without this header the print request
+ * fails in the browser before it is ever sent, and the only visible symptom is
+ * a Card that never prints.
+ *
+ * Registered ahead of `cors()` so it can add to the 204 that middleware
+ * returns for a preflight.
+ */
+app.use('*', async (c, next) => {
+  await next()
+  if (c.req.raw.headers.get('access-control-request-private-network') === 'true') {
+    c.res.headers.set('Access-Control-Allow-Private-Network', 'true')
+  }
+})
+
 app.use('*', cors())
 
 app.get('/health', async (c) => {

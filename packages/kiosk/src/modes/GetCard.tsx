@@ -30,8 +30,31 @@ import { useState } from 'react'
 import type { Student } from '@atrium/schema'
 import { leafLook, spentLine } from '../lib/leaves'
 import { beginBusy } from '../lib/busy'
+import { PrintAgentUnreachable, printCard, trayState } from '../lib/printer'
 import SimulateCard from './SimulateCard'
 import Preparing from './Preparing'
+
+/**
+ * Tell the server how the printing went, and never wait on it.
+ *
+ * The child already has their answer on screen by the time this runs. A station
+ * that cannot reach the route must not turn a printing problem into a second
+ * failure, so this deliberately has no error path and nothing awaits it.
+ */
+function report(outcome: {
+  studentId: string
+  taskId: string | null
+  ok: boolean
+  jobId?: string | null
+  failure?: string
+  detail?: string
+}) {
+  void fetch('/api/print-outcome', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(outcome),
+  }).catch(() => {})
+}
 
 /**
  * Four doors, all the same size.
@@ -90,6 +113,44 @@ export default function GetCard({
   // Set from the admin surface. Off means paper, which is the real thing.
   const simulate = localStorage.getItem('atrium.simulate') === 'on'
 
+  /**
+   * The Card is here and the Leaf is gone. Get it onto paper.
+   *
+   * Everything past this point costs the child the same whatever goes wrong, so
+   * the two outcomes on screen are the two that mean different things to them:
+   * paper came out, or it did not and that was not free. The distinction
+   * between a printer that refused and one that could not be found matters to
+   * whoever fixes it, not to the seven-year-old, so it travels in the report
+   * rather than onto the screen.
+   */
+  async function printReturnedCard(res: Response) {
+    const taskId = res.headers.get('x-atrium-task-id')
+    const leavesLeft = Number(res.headers.get('x-atrium-leaves') ?? '0')
+    const pdf = await res.blob()
+
+    // Held jobs let the whole loop be exercised without spending paper. Set at
+    // the station, the way simulate mode is.
+    const hold = localStorage.getItem('atrium.holdPrints') === 'on'
+
+    try {
+      const { jobId } = await printCard(pdf, {
+        title: `Atrium Card ${(taskId ?? '').slice(0, 8)}`,
+        ...(hold ? { hold: true } : {}),
+      })
+      report({ studentId: student.id, taskId, ok: true, jobId })
+      setState({ kind: 'printed', leavesLeft })
+    } catch (err) {
+      report({
+        studentId: student.id,
+        taskId,
+        ok: false,
+        failure: err instanceof PrintAgentUnreachable ? 'unreachable' : 'refused',
+        detail: err instanceof Error ? err.message : '',
+      })
+      setState({ kind: 'spent-and-lost' })
+    }
+  }
+
   async function ask(subject?: string) {
     setState(subject ? { kind: 'working', subject } : { kind: 'working' })
     /*
@@ -101,6 +162,22 @@ export default function GetCard({
      */
     const done = beginBusy()
     try {
+      /*
+       * The tray, before the Leaf.
+       *
+       * This check used to be the first thing `POST /api/card` did, and it has
+       * to stay first wherever it lives: generating spends the Leaf and there is
+       * no refund path, so refusing here is the only refusal that costs a child
+       * nothing. It runs from the browser now because the print agent is on this
+       * machine's LAN and the API route no longer is (`lib/printer.ts`).
+       *
+       * Simulate mode has no tray to check.
+       */
+      if (!simulate) {
+        const tray = await trayState()
+        if (!tray || !tray.ready) return setState({ kind: 'no-paper' })
+      }
+
       const res = await fetch('/api/card', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -110,6 +187,18 @@ export default function GetCard({
           ...(simulate ? { preview: true } : {}),
         }),
       })
+
+      /*
+       * A Card comes back as a PDF and everything else comes back as JSON, so
+       * the content type is what says which happened. Reading the body the
+       * wrong way here would turn a successful Card into a parse error after
+       * the Leaf had already been spent.
+       */
+      if (res.ok && res.headers.get('content-type')?.includes('application/pdf')) {
+        onPrinted?.()
+        return printReturnedCard(res)
+      }
+
       const body = (await res.json()) as {
         error?: string
         balance?: number
