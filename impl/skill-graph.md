@@ -73,6 +73,6 @@ Sorted by `overall_quality = 'needs-help'` first, then `overall_quality = 'shaky
 
 ```
 SUPABASE_URL=
-SUPABASE_SERVICE_KEY=
+SUPABASE_SECRET_KEY=
 PORT=3001
 ```

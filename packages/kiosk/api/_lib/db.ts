@@ -14,9 +14,9 @@ let atriumClient: SupabaseClient | null = null
 export function atrium(): SupabaseClient {
   if (!atriumClient) {
     const url = process.env.SUPABASE_URL
-    const key = process.env.SUPABASE_SERVICE_KEY
+    const key = process.env.SUPABASE_SECRET_KEY
     if (!url || !key) {
-      throw new Error('Missing env vars SUPABASE_URL / SUPABASE_SERVICE_KEY')
+      throw new Error('Missing env vars SUPABASE_URL / SUPABASE_SECRET_KEY')
     }
     atriumClient = createClient(url, key, { auth: { persistSession: false } })
   }
