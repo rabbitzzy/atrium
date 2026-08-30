@@ -48,51 +48,73 @@ export class PrintFailed extends Error {}
 export function printCardHtml(html: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const frame = document.createElement('iframe')
-    // Off-screen rather than `display: none`: a hidden frame is not guaranteed
-    // to lay out, and a Card that never laid out prints blank.
     frame.setAttribute('aria-hidden', 'true')
-    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0'
+    /*
+     * Sized to the paper, parked off-screen.
+     *
+     * The first version made this 1px by 1px, on the reasoning that a hidden
+     * frame need occupy no space. It printed blank sheets: the Card lays out
+     * against the frame's viewport, and a one-pixel viewport lays out a
+     * one-pixel Card. `@page` sizes the sheet, not the element that produced
+     * it. So the frame is Letter-sized and simply pushed out of view, which
+     * also keeps it out of the kiosk's own layout.
+     */
+    frame.style.cssText =
+      'position:fixed;left:-10000px;top:0;width:215.9mm;height:279.4mm;border:0'
 
     let settled = false
-    const cleanup = () => {
+    const finish = (err?: Error) => {
+      if (settled) return
+      settled = true
       // After the print, not before: removing the frame while the browser is
       // still reading it prints an empty sheet.
       window.setTimeout(() => frame.remove(), 1000)
+      if (err) reject(err)
+      else resolve()
     }
 
     frame.onload = () => {
-      if (settled) return
-      settled = true
-      try {
-        const win = frame.contentWindow
-        if (!win) throw new PrintFailed('the print frame did not open')
-        win.focus()
-        win.print()
-        cleanup()
-        resolve()
-      } catch (err) {
-        cleanup()
-        reject(err instanceof Error ? err : new PrintFailed(String(err)))
-      }
+      void (async () => {
+        try {
+          const win = frame.contentWindow
+          const doc = frame.contentDocument
+          if (!win || !doc) throw new PrintFailed('the print frame did not open')
+
+          /*
+           * Wait for the pictures. The QR is an <img>, and it is the one thing
+           * on the Card that has to survive a camera — a sheet printed before
+           * it decoded is a Card that cannot be scanned back, which is worse
+           * than one that did not print at all.
+           */
+          await Promise.all(
+            Array.from(doc.images).map((img) =>
+              img.complete
+                ? Promise.resolve()
+                : new Promise<void>((done) => {
+                    img.addEventListener('load', () => done(), { once: true })
+                    img.addEventListener('error', () => done(), { once: true })
+                  }),
+            ),
+          )
+          // One frame, so layout has certainly settled before the snapshot the
+          // print takes.
+          await new Promise<void>((done) => win.requestAnimationFrame(() => done()))
+
+          win.focus()
+          win.print()
+          finish()
+        } catch (err) {
+          finish(err instanceof Error ? err : new PrintFailed(String(err)))
+        }
+      })()
     }
 
-    frame.onerror = () => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(new PrintFailed('the Card could not be loaded for printing'))
-    }
+    frame.onerror = () => finish(new PrintFailed('the Card could not be loaded for printing'))
 
+    // `srcdoc` rather than document.write: it is what the simulate screen
+    // already uses to render the same markup, and it gives the frame a load
+    // event that means what it says.
+    frame.srcdoc = html
     document.body.appendChild(frame)
-    const doc = frame.contentDocument
-    if (!doc) {
-      settled = true
-      frame.remove()
-      reject(new PrintFailed('the print frame has no document'))
-      return
-    }
-    doc.open()
-    doc.write(html)
-    doc.close()
   })
 }
