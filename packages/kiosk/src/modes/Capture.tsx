@@ -652,13 +652,20 @@ export default function Capture({ student, onSwitchStudent }: Props) {
         worse than any of it being small, because a word broken mid-character is
         read as a fault rather than as a tight fit.
       */}
+      {/*
+        Wraps on a narrow screen. `nowrap` was right for the station, which is a
+        wide monitor and where a header that reflowed would have looked broken.
+        On a phone the same row is the name, two shortcuts, the Leaf count and
+        the student chip on 375 points of width, and refusing to wrap pushed it
+        off the side of the screen — taking the way out of the visit with it.
+      */}
       <header
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 10,
-          flexWrap: 'nowrap',
+          flexWrap: 'wrap',
         }}
       >
         {/*
@@ -689,7 +696,7 @@ export default function Capture({ student, onSwitchStudent }: Props) {
           same thing to the student who has just arrived, at a size they can
           read, and one tap gets them their own session.
         */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
           {!browsing && !showingProgress && (
             <>
               <button onClick={() => setBrowsing(true)} style={workBtn}>🗂️ My work 我的作品</button>
@@ -1216,7 +1223,7 @@ function ResultCard({
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', maxWidth: 760, margin: '0 auto', width: '100%', padding: 24, gap: 20 }
+const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', maxWidth: 760, margin: '0 auto', width: '100%', padding: 'clamp(12px, 4vw, 24px)', gap: 20 }
 const card: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
 const errorCard: React.CSSProperties = { padding: 20, background: '#fff0ee', borderRadius: 12, border: '1px solid #ffc8c0', display: 'flex', flexDirection: 'column', gap: 12 }
 const bigBtn: React.CSSProperties = { padding: '14px 28px', fontSize: 16, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', cursor: 'pointer', width: '100%' }

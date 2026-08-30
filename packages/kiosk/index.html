@@ -8,7 +8,33 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body style="margin:0;font-family:'DM Sans',sans-serif;background:#f8f7f4">
+  <style>
+    /*
+     * The base a phone needs, and nothing a kiosk notices.
+     *
+     * The station is a wide monitor and the layouts were written for it, in
+     * inline styles that cannot express a breakpoint. This is the small amount
+     * of real CSS that makes those layouts survive a narrow screen: padding is
+     * inside the width so a full-width control cannot overflow its parent, a
+     * picture never exceeds its column, and nothing may scroll sideways —
+     * horizontal scroll on a phone reads as a broken page, and on a station it
+     * would never have been noticed.
+     *
+     * `100dvh` because mobile browsers grow and shrink the viewport as their
+     * chrome slides away; `100vh` leaves a strip of blank page behind.
+     */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { max-width: 100%; overflow-x: hidden; }
+    img, svg, video, canvas, iframe { max-width: 100%; }
+    /* Touch targets: a seven-year-old's finger, not a mouse pointer. */
+    button, input, select, textarea { font-family: inherit; font-size: inherit; }
+    @media (max-width: 720px) {
+      button, [role='button'] { min-height: 44px; }
+      /* iOS zooms the page when a focused input is under 16px. */
+      input, select, textarea { font-size: 16px; }
+    }
+  </style>
+  <body style="margin:0;font-family:'DM Sans',sans-serif;background:#f8f7f4;min-height:100dvh">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

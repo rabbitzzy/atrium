@@ -50,7 +50,7 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ maxWidth: 620 }}>
+    <div style={{ maxWidth: 620, width: '100%', padding: 'clamp(12px, 4vw, 0px)' }}>
       <div style={{ ...card, borderColor: on ? '#c8963e' : '#d0cdc8' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button type="button" style={{ ...toggleBtn, background: on ? '#c8963e' : '#fff', color: on ? '#fff' : '#1a1a2e' }} onClick={toggle}>

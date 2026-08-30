@@ -171,7 +171,7 @@ const scrim: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: 24,
+  padding: 'clamp(14px, 4vw, 24px)',
 }
 const card: React.CSSProperties = {
   background: '#fff',

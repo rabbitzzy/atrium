@@ -121,9 +121,12 @@ export default function Admin() {
                 <span style={{ ...status, padding: '2px 10px', borderRadius: 14, fontSize: 12, fontWeight: 700 }}>
                   {c.ocr_status}
                 </span>
-                <span style={{ fontWeight: 600, minWidth: 90 }}>{c.kind}</span>
-                <span style={{ minWidth: 130 }}>{c.student_name}</span>
-                <span style={{ color: '#999', fontSize: 13, minWidth: 160 }}>
+                {/* Columns that line up on a monitor and simply wrap on a
+                    phone: a hard minWidth on each made the row wider than the
+                    screen and put the disclosure arrow out of reach. */}
+                <span style={{ fontWeight: 600, minWidth: 'min(90px, 30vw)' }}>{c.kind}</span>
+                <span style={{ minWidth: 'min(130px, 40vw)' }}>{c.student_name}</span>
+                <span style={{ color: '#999', fontSize: 13, minWidth: 'min(160px, 45vw)' }}>
                   {new Date(c.captured_at).toLocaleString()}
                 </span>
                 <span style={{ color: '#999', fontSize: 13 }}>
@@ -137,7 +140,7 @@ export default function Admin() {
                   <a href={c.storage_url} target="_blank" rel="noreferrer">
                     <img src={c.storage_url} alt="" style={thumb} />
                   </a>
-                  <div style={{ flex: 1, minWidth: 320 }}>
+                  <div style={{ flex: 1, minWidth: 'min(320px, 100%)' }}>
                     <dl style={meta}>
                       <dt>id</dt><dd>{c.id}</dd>
                       <dt>student_id</dt><dd>{c.student_id}</dd>
@@ -230,10 +233,10 @@ export default function Admin() {
   )
 }
 
-const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }
+const page: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 'clamp(12px, 4vw, 24px)', maxWidth: 1100, margin: '0 auto', width: '100%' }
 const card: React.CSSProperties = { background: '#fff', borderRadius: 10, boxShadow: '0 1px 2px rgba(0,0,0,0.07)', overflow: 'hidden' }
 const rowBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', fontSize: 14, textAlign: 'left' }
 const control: React.CSSProperties = { padding: '7px 12px', fontSize: 13, fontFamily: 'DM Sans, sans-serif', borderRadius: 8, border: '1px solid #d0cdc8', background: '#fff', cursor: 'pointer' }
-const thumb: React.CSSProperties = { width: 260, borderRadius: 8, border: '1px solid #e5e2dd', display: 'block' }
+const thumb: React.CSSProperties = { width: 260, maxWidth: '100%', borderRadius: 8, border: '1px solid #e5e2dd', display: 'block' }
 const meta: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 12px', fontSize: 12, color: '#666', margin: '0 0 12px', fontFamily: 'ui-monospace, monospace' }
 const pre: React.CSSProperties = { background: '#1a1a2e', color: '#e8e6e3', padding: 14, borderRadius: 8, fontSize: 12, lineHeight: 1.55, overflowX: 'auto', margin: 0, maxHeight: 420 }
