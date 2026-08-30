@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { getSupabase } from '../db/client.js'
+import { getSupabase, rows } from '../db/client.js'
 import { planNext, type FloorPlanRoom, type SubjectFocus } from '../models/frontier.js'
 
 const router = new Hono()
@@ -50,39 +50,49 @@ router.get('/next/:studentId', async (c) => {
   if (edgeError) return c.json({ error: edgeError.message }, 500)
   if (attemptError) return c.json({ error: attemptError.message }, 500)
 
-  const stateByKc = new Map((state ?? []).map((s) => [s.kc_id as string, s]))
+  type KcRow = {
+    id: string
+    label_en: string
+    label_zh: string
+    subject: string
+    difficulty: number
+    bkt_p_l0: number
+  }
+  type StateRow = { kc_id: string; mastery_prob: number; attempts: number; evidence: number }
+  type AttemptRow = { kc_id: string; correct: boolean; created_at: string }
+
+  const stateByKc = new Map(rows<StateRow>(state).map((s) => [s.kc_id, s]))
 
   const prerequisites = new Map<string, string[]>()
-  for (const e of edges ?? []) {
-    const to = e.to_kc_id as string
-    prerequisites.set(to, [...(prerequisites.get(to) ?? []), e.from_kc_id as string])
+  for (const e of rows<{ from_kc_id: string; to_kc_id: string }>(edges)) {
+    prerequisites.set(e.to_kc_id, [...(prerequisites.get(e.to_kc_id) ?? []), e.from_kc_id])
   }
 
   // The run of wrong answers ending at the most recent attempt, per Room. The
   // ledger arrives newest-first, so the first correct answer closes the run.
   const failureRun = new Map<string, number>()
   const runClosed = new Set<string>()
-  for (const a of attempts ?? []) {
-    const kcId = a.kc_id as string
+  for (const a of rows<AttemptRow>(attempts)) {
+    const kcId = a.kc_id
     if (runClosed.has(kcId)) continue
     if (a.correct) runClosed.add(kcId)
     else failureRun.set(kcId, (failureRun.get(kcId) ?? 0) + 1)
   }
 
-  const rooms: FloorPlanRoom[] = (leaves ?? []).map((kc) => {
-    const s = stateByKc.get(kc.id as string)
+  const rooms: FloorPlanRoom[] = rows<KcRow>(leaves).map((kc) => {
+    const s = stateByKc.get(kc.id)
     return {
-      kcId: kc.id as string,
-      labelEn: kc.label_en as string,
-      labelZh: kc.label_zh as string,
-      subject: kc.subject as string,
-      difficulty: kc.difficulty as number,
+      kcId: kc.id,
+      labelEn: kc.label_en,
+      labelZh: kc.label_zh,
+      subject: kc.subject,
+      difficulty: kc.difficulty,
       // No history means the prior, not zero — the same rule the radar uses.
-      masteryProb: (s?.mastery_prob as number | undefined) ?? (kc.bkt_p_l0 as number),
-      attempts: (s?.attempts as number | undefined) ?? 0,
-      evidence: (s?.evidence as number | undefined) ?? 0,
-      prerequisiteIds: prerequisites.get(kc.id as string) ?? [],
-      consecutiveFailures: failureRun.get(kc.id as string) ?? 0,
+      masteryProb: s?.mastery_prob ?? kc.bkt_p_l0,
+      attempts: s?.attempts ?? 0,
+      evidence: s?.evidence ?? 0,
+      prerequisiteIds: prerequisites.get(kc.id) ?? [],
+      consecutiveFailures: failureRun.get(kc.id) ?? 0,
     }
   })
 
@@ -145,10 +155,11 @@ router.post('/', zValidator('json', CreateTaskSchema), async (c) => {
     .in('id', body.kcIds)
   if (kcError) return c.json({ error: kcError.message }, 500)
 
-  const found = new Set((kcs ?? []).map((k) => k.id as string))
+  const targets = rows<{ id: string; depth: number }>(kcs)
+  const found = new Set(targets.map((k) => k.id))
   const unknown = body.kcIds.filter((id) => !found.has(id))
   if (unknown.length) return c.json({ error: 'unknown kcIds', unknown }, 400)
-  const headings = (kcs ?? []).filter((k) => k.depth !== 2).map((k) => k.id as string)
+  const headings = targets.filter((k) => k.depth !== 2).map((k) => k.id)
   if (headings.length) return c.json({ error: 'a Card cannot target a heading', headings }, 400)
 
   const { error: taskError } = await db.from('tasks').upsert(
@@ -187,7 +198,7 @@ router.get('/:id', async (c) => {
   // needs to grade it and everything a Debrief needs to name it. One call,
   // because the scan path is on the 30-second budget.
   const { data: links } = await db.from('task_kcs').select('kc_id').eq('task_id', taskId)
-  const kcIds = (links ?? []).map((l) => l.kc_id as string)
+  const kcIds = rows<{ kc_id: string }>(links).map((l) => l.kc_id)
 
   const { data: kcs } = kcIds.length
     ? await db.from('kcs').select('id, label_en, label_zh, subject, difficulty').in('id', kcIds)

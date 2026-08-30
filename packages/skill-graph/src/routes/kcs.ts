@@ -15,7 +15,7 @@
  */
 
 import { Hono } from 'hono'
-import { getSupabase } from '../db/client.js'
+import { getSupabase, rows } from '../db/client.js'
 
 const router = new Hono()
 
@@ -80,10 +80,12 @@ router.get('/:id{.+}', async (c) => {
     .or(`from_kc_id.eq.${id},to_kc_id.eq.${id}`)
   if (edgeError) return c.json({ error: edgeError.message }, 500)
 
+  type EdgeRow = { from_kc_id: string; to_kc_id: string; edge_type: string }
+  const edgeRows = rows<EdgeRow>(edges)
   return c.json({
     ...kc,
-    incoming: (edges ?? []).filter((e) => e.to_kc_id === id),
-    outgoing: (edges ?? []).filter((e) => e.from_kc_id === id),
+    incoming: edgeRows.filter((e) => e.to_kc_id === id),
+    outgoing: edgeRows.filter((e) => e.from_kc_id === id),
   })
 })
 

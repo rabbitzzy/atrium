@@ -33,7 +33,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { atrium } from './_lib/db'
+import { atrium, rows } from './_lib/db'
 
 /** A term's worth of visits, and enough to fill a scrolling grid many times. */
 const LIMIT = 120
@@ -60,12 +60,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (error) throw new Error(error.message)
 
+    type CaptureRow = { id: string; kind: string; storage_url: string; captured_at: string }
     return res.status(200).json({
-      captures: (data ?? []).map((row) => ({
-        id: row.id as string,
-        kind: row.kind as string,
-        fileUrl: row.storage_url as string,
-        capturedAt: row.captured_at as string,
+      captures: rows<CaptureRow>(data).map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        fileUrl: r.storage_url,
+        capturedAt: r.captured_at,
       })),
     })
   } catch (err) {
