@@ -8,10 +8,18 @@
  * asked the server for every capture in the hub and got a 401 it presented as
  * an error. One helper, so there is one place to forget.
  *
- * The token lives in `localStorage` per browser. That is a guard rather than an
- * authentication system, exactly as the server side says: real per-user access
- * arrives with the teacher dashboard, which needs identity and not a password
- * everyone shares.
+ * The token lives in `localStorage` per browser, set once by whoever sets the
+ * station up. There is deliberately no field for it in the UI: `#teacher` and
+ * `#admin` are ungated hash routes that any child can type, so a box holding
+ * the secret that opens every capture of every student does not belong on a
+ * screen they can reach — least of all prefilled with the live value, where
+ * devtools reads it straight out of the DOM. Setting it is a deployment step,
+ * like the printer name.
+ *
+ * That it is a shared secret at all is the temporary part, and the reason not
+ * to build UI around it. `api/_lib/admin.ts` calls itself a guard rather than
+ * an authentication system, and real per-user access arrives with the teacher
+ * dashboard, which needs identity instead of a password everyone knows.
  */
 
 const KEY = 'atrium.adminToken'
@@ -24,14 +32,6 @@ export function adminToken(): string {
   }
 }
 
-export function setAdminToken(token: string): void {
-  try {
-    if (token) localStorage.setItem(KEY, token)
-    else localStorage.removeItem(KEY)
-  } catch {
-    /* a browser with storage disabled simply stays locked out */
-  }
-}
 
 /** Spread into a fetch's headers. Empty when unset, so the 401 is the server's. */
 export function adminHeader(): Record<string, string> {
