@@ -220,13 +220,19 @@ router.delete('/:id/simulated', async (c) => {
     )
     const result = derivePlacement(
       placement.claim_json as { levels: Record<string, number> },
-      (leaves ?? []).map((kc) => ({
-        kcId: kc.id as string,
-        labelEn: kc.label_en as string,
-        subject: kc.subject as string,
-        difficulty: kc.difficulty as number,
-        bktPL0: kc.bkt_p_l0 as number,
-        attempts: attemptsByKc.get(kc.id as string) ?? 0,
+      rows<{
+        id: string
+        label_en: string
+        subject: string
+        difficulty: number
+        bkt_p_l0: number
+      }>(leaves).map((kc) => ({
+        kcId: kc.id,
+        labelEn: kc.label_en,
+        subject: kc.subject,
+        difficulty: kc.difficulty,
+        bktPL0: kc.bkt_p_l0,
+        attempts: attemptsByKc.get(kc.id) ?? 0,
       })),
     )
     if (result.seeded.length) {
