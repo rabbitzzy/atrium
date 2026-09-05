@@ -24,11 +24,23 @@ export type { ResolutionPrompt, MoveOption } from './resolve'
 // Reading a sheet that is still arriving (BHCS-17).
 export { LOOKAHEAD, stablePrefix, promptWhileStreaming } from './stream'
 export type { ArrivingMove } from './stream'
+// Reading a board that was drawn rather than played (BHCS-106).
+export { toPosition, toPositions } from './fen'
+export type { BoardPosition, PieceColor, RawBoard, RawPiece } from './fen'
 
 import { validateGame } from './validate'
+import { toPositions, type BoardPosition, type RawBoard } from './fen'
 import type { ConfirmedMoves, MoveStatus, RawMovePair, ValidatedMove } from './status'
 
-/** The shape the chess capture prompt produces — chess-karma's OCR contract. */
+/**
+ * The shape the chess capture prompt produces — chess-karma's OCR contract,
+ * plus the diagrams BHCS-106 added.
+ *
+ * `moves` and `boards` are independent and either may be empty: a page can be
+ * a scoresheet, a sheet of puzzle positions, or a scoresheet with the final
+ * position drawn under it. `boards` is optional rather than required because
+ * every chess capture taken before BHCS-106 is stored without it.
+ */
 export interface ChessScoresheet {
   metadata: {
     white: string | null
@@ -39,6 +51,7 @@ export interface ChessScoresheet {
     result: string | null
   }
   moves: RawMovePair[]
+  boards?: RawBoard[]
 }
 
 export type MoveCounts = Record<MoveStatus, number>
@@ -60,6 +73,15 @@ export interface ValidatedScoresheet {
   metadata: ChessScoresheet['metadata']
   source: RawMovePair[]
   moves: ValidatedMove[]
+  /**
+   * Diagrams on the page, notated. Empty for a plain scoresheet, and empty for
+   * every capture taken before BHCS-106.
+   *
+   * Deliberately outside `confidence`: a position either notated or it did
+   * not, and averaging that with how well the handwriting read would make one
+   * number that answers neither question.
+   */
+  boards: BoardPosition[]
   /** Answers a student gave, keyed by `moveKey`. Empty until they are asked. */
   confirmed: ConfirmedMoves
   counts: MoveCounts
@@ -102,6 +124,7 @@ export function validateScoresheet(
     metadata: ocr.metadata,
     source,
     moves,
+    boards: toPositions(ocr.boards),
     confirmed,
     counts,
     confidence: resolved > 0 ? (counts.confirmed + counts.ok) / resolved : 0,
