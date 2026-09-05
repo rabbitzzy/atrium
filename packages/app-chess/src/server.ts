@@ -206,10 +206,17 @@ on. If a piece is genuinely hidden or unreadable, leave it out rather than
 guessing.`
 
 /**
- * The model that locates the diagrams. Named here rather than in the platform
- * because it is this pass's requirement, not the station's.
+ * The model that locates the diagrams.
+ *
+ * The same one the station now runs everywhere, so in practice this splits
+ * nothing. It stays named here because it is this pass's *requirement* rather
+ * than a preference: locating nine diagrams on a photographed page needs a
+ * model that grounds, and if the station's model is ever changed to one that
+ * does not, this pass has to keep working. It is the only capability in the
+ * app that fails silently — a model that cannot ground does not say so, it
+ * returns a tidy invented grid and the crops read the wrong squares.
  */
-const LOCATE_MODEL = 'gemini-3.8-flash'
+const LOCATE_MODEL = 'gemini-3.5-flash'
 
 const BOARD_SCHEMA: GeminiSchema = {
   type: 'OBJECT',
@@ -340,8 +347,8 @@ export const chessServer: CaptureAppServer<ChessScoresheet, ValidatedScoresheet>
      * spaced — a grid it assumed rather than measured, and one that cropped
      * half a board at a time. Telling it in the prompt that the page is skewed
      * and the boxes will not be regular changed nothing. `gemini-3.5-flash`
-     * and this model both return boxes whose left edges track the actual lean
-     * of the paper down the page, in about the same ten seconds.
+     * and `gemini-3.8-flash` both return boxes whose left edges track the
+     * actual lean of the paper down the page, in about the same ten seconds.
      *
      * The close-up reads stay on the station's model: reading one board that
      * fills the frame is a job the default does well and faster.
