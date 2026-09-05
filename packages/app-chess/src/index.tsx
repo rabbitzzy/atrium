@@ -9,6 +9,9 @@
  * the `Resolve` step stops to ask about. A move a student settled themselves
  * is marked as theirs — the point is never to imply the machine read something
  * it did not.
+ *
+ * A page can also carry board diagrams instead of, or as well as, a move list
+ * (BHCS-106), so both halves render independently and either may be absent.
  */
 
 import { Suspense, lazy } from 'react'
@@ -17,7 +20,7 @@ import type { CaptureApp, CaptureContext, WaitLine } from '@atrium/schema'
 // chess.js, and this module is loaded by every student at the kiosk whether or
 // not they came with a scoresheet.
 import { isUncertain, type MoveStatus, type ValidatedMove } from '@atrium/chess-rules/status'
-import type { ValidatedScoresheet } from '@atrium/chess-rules'
+import type { BoardPosition, ValidatedScoresheet } from '@atrium/chess-rules'
 
 /**
  * The board arrives only when a scoresheet actually needs one.
@@ -30,6 +33,9 @@ import type { ValidatedScoresheet } from '@atrium/chess-rules'
  */
 const LazyResolve = lazy(() => import('./Resolve').then((m) => ({ default: m.Resolve })))
 
+/** The same bargain for the diagrams: no board until there is a board to draw. */
+const LazyBoards = lazy(() => import('./Boards').then((m) => ({ default: m.Boards })))
+
 function Resolve(props: {
   result: ValidatedScoresheet
   onResolved: (r: ValidatedScoresheet) => void
@@ -37,6 +43,14 @@ function Resolve(props: {
   return (
     <Suspense fallback={<div style={{ ...card, color: '#999' }}>Setting up the board…</div>}>
       <LazyResolve {...props} />
+    </Suspense>
+  )
+}
+
+function Boards({ boards }: { boards: BoardPosition[] }) {
+  return (
+    <Suspense fallback={<div style={{ ...card, color: '#999' }}>Setting up the position…</div>}>
+      <LazyBoards boards={boards} />
     </Suspense>
   )
 }
@@ -94,7 +108,7 @@ function MoveRow({ move }: { move: ValidatedMove }) {
   )
 }
 
-function ChessResult({ result }: { result: ValidatedScoresheet }) {
+function Game({ result }: { result: ValidatedScoresheet }) {
   const { metadata, moves, counts } = result
   const needsLook = counts.corrected + counts.failed + counts.missing
 
@@ -131,6 +145,27 @@ function ChessResult({ result }: { result: ValidatedScoresheet }) {
 }
 
 /**
+ * The two halves of a chess page, each shown only if it is there.
+ *
+ * A sheet of puzzle diagrams has no game on it, and rendering the game card
+ * anyway would greet that student with "? vs ?" and "0 moves read" — a result
+ * screen reporting a failure at reading something they never handed in.
+ * `boards` is defaulted rather than assumed for the same kind of reason: every
+ * chess capture taken before BHCS-106 is stored without the field.
+ */
+function ChessResult({ result }: { result: ValidatedScoresheet }) {
+  const boards = result.boards ?? []
+  const hasGame = result.moves.length > 0 || boards.length === 0
+
+  return (
+    <>
+      {hasGame && <Game result={result} />}
+      {boards.length > 0 && <Boards boards={boards} />}
+    </>
+  )
+}
+
+/**
  * Waiting-room talk for a scoresheet.
  *
  * Two of these are doing more than filling silence. Saying that the moves are
@@ -150,6 +185,9 @@ function chessWaitChat({ student }: CaptureContext): WaitLine[] {
     { en: 'Chess handwriting is the tricky kind. Going slowly.', zh: '棋谱的字最难认，我慢慢来。' },
     { en: 'Replaying your game to check each move fits the position.', zh: '我在把这局棋走一遍，看每一步对不对得上。' },
     { en: 'If a move is hard to read, I will ask you about it in a second.', zh: '要是有一步看不清，等一下我问你。' },
+    // Conditional on purpose. Nothing has been read yet, so this can promise
+    // what the station will do with a diagram without claiming there is one.
+    { en: 'If there is a board drawn here, I will write the position down too.', zh: '要是这页上画了棋盘，我也把局面记下来。' },
   ]
 }
 
