@@ -49,7 +49,7 @@ HTTP rather than imported.
 | `packages/app-chess` | Capture → transcribe verbatim | App |
 | `packages/app-doodle` | Capture → store | App |
 | `packages/schema` | Shared types and the capture app contract | Helper |
-| `packages/worksheet-print` | Print/PDF service (Hono :3002, Puppeteer, QR) — *not* the worksheet app | Backend service |
+| `packages/worksheet-print` | Card generation (Hono, QR) — *not* the worksheet app. Mounted inside the kiosk function rather than deployed on its own, and it returns HTML for a browser to print; the Puppeteer PDF step went with the print agent (#54/#55) | Backend service |
 | `packages/skill-graph` | BKT + student state (Hono) | Backend service |
 | `packages/chess-rules` | Handwritten move text resolved against the board | Helper |
 
@@ -331,8 +331,9 @@ Each step compiles and ships on its own. No big-bang refactor.
    on 101 of 101 half-moves across both chess-karma fixtures, statuses
    included — which needed difflib's exact ratio *and* python-chess's
    move-generation order, because both decide what a garbled cell resolves to.
-6. **Consolidate the evaluators**, delete `packages/evaluator`. (`ScanSubmit.tsx`
-   is already gone — see the update under decision 1.)
+6. ~~**Consolidate the evaluators**, delete `packages/evaluator`.~~ Done
+   (BHCS-23) — the package is gone and the TypeScript pipeline is the only
+   grader. `ScanSubmit.tsx` went earlier; see the update under decision 1.
 7. ~~BHCS-11 and BHCS-10~~ Done, each inside one app directory. BHCS-11 was the
    proof the split paid off: the board, the prompt selection and the
    re-anchoring loop are entirely inside `app-chess` and `chess-rules`. The
@@ -378,42 +379,47 @@ capability. Steps 6–7 are the features that motivated the split.
   `refined_status` and `refined_error` — generic, not chess-named, because the
   refine step belongs to the platform's pipeline. `ocr_json` is still never
   rewritten.
-- **The Vercel build is unverified.** The dev server resolves the workspace
-  packages through Vite, which is the path in daily use and is covered
-  end-to-end. `@vercel/node` traces and compiles TypeScript from linked
-  workspace packages too, but nothing here has been deployed, so the first
-  deploy should be treated as the real test of that.
+- ~~**The Vercel build is unverified.**~~ Settled (BHCS-59). The station is
+  deployed and serving: `@vercel/node` does trace and compile TypeScript from
+  linked workspace packages, and the api bundle is built by esbuild into a
+  single file — which is why anything the capture function needs must be
+  bundleable, and why `crop.ts` uses `jpeg-js` rather than a native module.
 
-## The print agent, and why it is a fourth deployable (BHCS-67)
+## How a Card reaches the tray, and the deployable that stopped existing (BHCS-67)
 
-Flywheel step 3 ends with paper coming out of a machine, and the layering has
-something to say about where that happens.
+Flywheel step 3 ends with paper coming out of a machine. The answer changed
+once, and the reasoning on both sides is worth keeping because the trade it
+turns on is still live.
 
-The constraint is physical. The printer is on the school LAN; the kiosk browser
-is on the school LAN; whatever generates the PDF is a serverless function,
-which is not, and cannot reach a printer at `192.168.x.y` however it is
-configured. So "CUPS straight from the server" — the tidiest option on paper —
-has no route to the tray. Something already on the LAN has to hand the job
-over, and `packages/print-agent` is the smallest thing that can.
+**The browser prints, as of #54/#55.** The kiosk already runs on the machine
+the printer is plugged into, and a browser prints HTML natively — so the Card
+is rendered into a hidden iframe and Chrome, started with `--kiosk-printing`,
+puts it on paper with no dialog. `worksheet-print` returns markup rather than a
+PDF, Puppeteer is gone from it, and it is mounted inside the kiosk function
+beside `skill-graph` instead of being deployed on its own.
 
-**Why not managed ChromeOS printing**, which needs no new service at all: it
-works, and it cannot report. `window.print()` returns `undefined` when the page
-printed, when the printer was out of paper, when it was unplugged, and when the
-job was cancelled at the device. A station built on it can never learn that a
-Leaf was spent for nothing, which leaves BHCS-38's refund permanently
-unreachable and a teacher noticing as the only recovery.
+`packages/print-agent` is still in the tree and **nothing calls it.** It should
+be deleted or given a reason to exist; leaving a package that reads as live
+architecture is how the next person builds against it by mistake.
 
-A CUPS queue can be asked. Measured against a real printer: a job in a working
-queue reads `active`; disable the queue — the out-of-paper, jammed and offline
-case — and the same job reads `stuck`, `failed: true`, while new submissions are
-refused with 503 *before* a Leaf is spent. That is the difference between a
-refund path that can fire and one that is decoration.
+### What the agent was for, and what was given up
 
-One honest limit, stated rather than papered over: a job **cancelled at the
-device** leaves the queue alongside one that printed perfectly, and CUPS's cheap
-interfaces cannot separate them. The detectable failure is the stuck queue,
-which is the one the Leaf economy actually needs.
+The original design was CUPS via a LAN agent, and the constraint that produced
+it was physical: a serverless function cannot reach a printer at `192.168.x.y`,
+so something already on the LAN had to hand the job over.
 
-The agent is not a layer. It is a deployable like `skill-graph` and
-`worksheet-print`, addressed by HTTP, and it knows nothing about Cards, Leaves
-or mastery — it takes a PDF and returns a job id.
+The agent's one real advantage was that **a CUPS queue can be asked a
+question.** Measured against a real printer: a job in a working queue reads
+`active`; disable the queue — the out-of-paper, jammed and offline case — and
+the same job reads `stuck`, `failed: true`, while new submissions are refused
+with 503 *before* a Leaf is spent. `window.print()` returns `undefined`
+whichever of those happened.
+
+So the browser path gives up the only refusal that cost a child nothing. **An
+empty tray now costs a Leaf**, and the recovery is a teacher granting one
+(BHCS-47) — which was already the path for a print that failed after the spend.
+That is the trade, made deliberately: one less service beside the printer,
+against a refund that can no longer fire on its own.
+
+The remaining open item is the one no amount of code settles — a real
+end-to-end print at the station, with a child.
