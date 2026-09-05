@@ -44,7 +44,7 @@ HTTP rather than imported.
 
 | On disk | What it is | Layer |
 |---|---|---|
-| `packages/kiosk` | Camera, focus, crop, check-in, mode routing, admin viewer, storage, db, Gemini transport, and the two app registries | Platform |
+| `packages/kiosk` | Camera, focus, crop, check-in, mode routing, admin viewer, storage, db, Gemini transport, region cropping, and the two app registries | Platform |
 | `packages/app-worksheet` | Capture → grade → Debrief | App |
 | `packages/app-chess` | Capture → transcribe verbatim | App |
 | `packages/app-doodle` | Capture → store | App |
@@ -131,6 +131,46 @@ This is where a reading-level estimate from `skill-graph` lands when there is
 BKT history to compute one from. Nothing in the context may ever be depended on:
 `student.grade` is null for most of the roster, and every field added after it
 will be at least as sparse.
+
+### `extract.closeUp` — looking twice (BHCS-107)
+
+Some paper carries several of the same thing. A coach's "Mate In Three Moves"
+sheet has nine diagrams on it, and the first real one put under the camera came
+back with **the same fabricated position for seven of the nine boards**.
+
+It is not a resolution problem. Cropping a single board out of that same
+photograph and asking again returned the position exactly right. One answer
+covering nine boards is an answer in which no individual board was looked at.
+
+So an app may declare a second pass. The first locates regions and reads what
+is printed *around* them; the platform then crops each region out of the
+original image and asks about it on its own, eight at a time, and hands the
+readings back to the app's `merge`. What comes out is still the extraction —
+`refine` cannot tell how many calls assembled it, which is what keeps `refine`
+pure and the backfill replayable.
+
+The platform gained three files, all app-agnostic:
+
+| Platform | What it is |
+|---|---|
+| `api/_lib/crop.ts` | A rectangle out of a photograph. `jpeg-js`, not `sharp`, because the API is bundled by esbuild and a native module cannot be. 1.4s to decode a 24MP phone photo, 90ms a crop. |
+| `api/_lib/pool.ts` | Running a bounded number of jobs at once, keeping every answer in its slot and turning a failure into a `null` rather than a lost page. |
+| `CaptureExtract.model` | Which model reads a pass, when the station's default will not do. |
+
+That last one is the uncomfortable part, and it is measured rather than
+preferred. Asked where the nine diagrams on a page are, `gemini-2.5-flash`
+returns nine boxes of identical width, evenly spaced — a grid it assumed rather
+than measured — and no wording of the prompt changes it. `gemini-3.5-flash` and
+`gemini-3.8-flash` return boxes whose left edges track the lean of the
+photographed paper down the page. Cropping by the first set reads the wrong
+squares; cropping by the second reads the board. So the chess page pass names
+its model and the close-up reads stay on the station's, which is both cheaper
+and better at one board that fills the frame.
+
+**The cost is one model call per region**, so an app should declare this only
+for a page that genuinely holds repeated independent artifacts. Nine puzzles
+now read in 29s, where one call over the whole page took 61s to produce seven
+copies of the same wrong answer.
 
 ### `speech` — the result, out loud (BHCS-15)
 

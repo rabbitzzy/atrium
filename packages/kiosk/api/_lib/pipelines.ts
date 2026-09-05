@@ -7,8 +7,27 @@
  * with which prompt, is the app's business and lives in its own package.
  */
 
-import type { CaptureAppServer, CaptureContext, RecordArgs, SystemPrompt } from '@atrium/schema'
+import type {
+  CaptureAppServer,
+  CaptureCloseUp,
+  CaptureContext,
+  RecordArgs,
+  SystemPrompt,
+} from '@atrium/schema'
+import { cropJpeg, decodeJpeg, isJpeg } from './crop.js'
 import { visionJson, visionJsonStream } from './gemini.js'
+import { inParallel } from './pool.js'
+
+/**
+ * How many close-up calls are in flight at once (BHCS-107).
+ *
+ * A page of nine diagrams is nine calls, and running them one after another
+ * would put the result well past the thirty seconds a child will wait. Eight
+ * at a time reads a nine-puzzle sheet — the heaviest page seen so far — in
+ * essentially one round, without opening an unbounded number of connections
+ * for a page that turns out to hold fifty.
+ */
+const CLOSE_UP_CONCURRENCY = 8
 
 export interface PipelineOutcome {
   status: 'ok' | 'skipped' | 'failed'
@@ -52,6 +71,63 @@ function systemPrompt(prompt: SystemPrompt, ctx: CaptureContext): string {
   return typeof prompt === 'function' ? prompt(ctx) : prompt
 }
 
+/**
+ * The second, closer pass: crop each region the app pointed at and read it.
+ *
+ * Never throws and never fails the capture. A region whose call fails comes
+ * back as `null` and the app's `merge` decides what that means — one
+ * unreadable diagram on a page of nine must not cost the other eight.
+ *
+ * The platform knows only that these are regions of a photograph. What is
+ * inside one, and what the readings mean, stays entirely with the app.
+ */
+async function runCloseUp(
+  closeUp: CaptureCloseUp,
+  raw: unknown,
+  image: Buffer,
+  mimeType: string,
+  ctx: CaptureContext,
+): Promise<unknown> {
+  const regions = closeUp.regions(raw)
+  if (regions.length === 0) return raw
+
+  // Only JPEG can be cropped, which is what the kiosk camera produces. Anything
+  // else keeps the single-pass extraction rather than losing it.
+  if (!isJpeg(mimeType)) {
+    console.warn(`[capture] close-up skipped: ${mimeType} cannot be cropped`)
+    return raw
+  }
+
+  // Decoded once for the whole page. Decoding is the expensive half.
+  const decoded = decodeJpeg(image)
+  const prompt = systemPrompt(closeUp.systemPrompt, ctx)
+
+  const readings = await inParallel(
+    regions,
+    CLOSE_UP_CONCURRENCY,
+    async (region) => {
+      const crop = cropJpeg(decoded, region.box)
+      if (!crop) return null
+      const { data } = await visionJson({
+        image: crop,
+        mimeType: 'image/jpeg',
+        systemPrompt: prompt,
+        userPrompt: region.note ? `${closeUp.userPrompt}\n\n${region.note}` : closeUp.userPrompt,
+        schema: closeUp.schema,
+        ...(closeUp.model ? { model: closeUp.model } : {}),
+      })
+      return data
+    },
+    // One region failing is a gap in the page, not a failed capture.
+    (err, i) =>
+      console.warn(
+        `[capture] close-up ${i + 1}/${regions.length} failed: ${(err as Error).message}`,
+      ),
+  )
+
+  return closeUp.merge(raw, readings)
+}
+
 export async function runPipeline(
   app: CaptureAppServer,
   image: Buffer,
@@ -76,6 +152,7 @@ export async function runPipeline(
     systemPrompt: systemPrompt(app.extract.systemPrompt, ctx),
     userPrompt: app.extract.userPrompt,
     schema: app.extract.schema,
+    ...(app.extract.model ? { model: app.extract.model } : {}),
   }
 
   let data: unknown
@@ -93,6 +170,19 @@ export async function runPipeline(
     // A failed pipeline must never lose the image — capture.ts has already
     // persisted it to Drive by this point, and the row is written either way.
     return { ...NOTHING, status: 'failed', error: (err as Error).message }
+  }
+
+  // A closer look at what the first pass found, if the app asked for one. The
+  // result is still the extraction — `refine` below cannot tell how many calls
+  // went into assembling it, which is what keeps `refine` pure and replayable.
+  if (app.extract.closeUp) {
+    try {
+      data = await runCloseUp(app.extract.closeUp, data, image, mimeType, ctx)
+    } catch (err) {
+      // The first pass succeeded and is worth keeping on its own. Losing a
+      // located page because the closer look threw would be the worse trade.
+      console.warn(`[capture] close-up pass failed: ${(err as Error).message}`)
+    }
   }
 
   const extracted = { ...NOTHING, status: 'ok' as const, data, model, ms }

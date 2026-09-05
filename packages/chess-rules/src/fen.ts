@@ -35,6 +35,16 @@ export interface RawBoard {
   orientation?: string | null
   sideToMove?: string | null
   pieces?: RawPiece[]
+  /**
+   * Where the board sits on the page, as the locating pass reported it
+   * (BHCS-107): [ymin, xmin, ymax, xmax] on a 0-1000 scale.
+   *
+   * Nothing in here reads it — a position is the same position wherever on the
+   * paper it was drawn. It is carried because it is part of what was extracted,
+   * and because the app that cropped by it should not have to keep a second
+   * copy of the extraction in step.
+   */
+  box?: number[]
 }
 
 /** One diagram, notated. */
