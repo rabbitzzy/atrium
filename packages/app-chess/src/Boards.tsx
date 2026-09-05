@@ -17,6 +17,22 @@ import { Chessboard } from 'react-chessboard'
 import type { BoardPosition } from '@atrium/chess-rules'
 
 /**
+ * One named tab for every analysis link on the page.
+ *
+ * `target="_blank"` opens a fresh tab per click, which on a nine-puzzle sheet
+ * is nine tabs and nine drags. A *named* target reuses the same one, so a
+ * teacher can park it beside the station in a split view and every board's
+ * link then updates that pane in place — the thing a link cannot ask a browser
+ * to do directly.
+ *
+ * It costs the implicit `noopener` that `_blank` carries: a named target is
+ * ignored unless the opener relationship is allowed, so the analysis site gets
+ * a `window.opener` handle back to this page. Accepted deliberately, for two
+ * sites this app hardcodes and a station where the alternative is nine tabs.
+ */
+const ANALYSIS_TAB = 'atrium-analysis'
+
+/**
  * Copy is offered, not assumed.
  *
  * The kiosk browser may not be on a secure origin, and `navigator.clipboard`
@@ -82,14 +98,14 @@ function Position({ position, n, many }: { position: BoardPosition; n: number; m
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
           <CopyFen fen={position.fen} />
-          <a href={position.lichess} target="_blank" rel="noreferrer" style={link}>
+          <a href={position.lichess} target={ANALYSIS_TAB} style={link}>
             {position.legal ? 'Open in lichess' : 'Open in the lichess editor'}
           </a>
           {/* chess.com's analysis board wants a position a game could be in;
               offering it one that is not would be sending a child to an error
               page. */}
           {position.legal && (
-            <a href={position.chessCom} target="_blank" rel="noreferrer" style={link}>
+            <a href={position.chessCom} target={ANALYSIS_TAB} style={link}>
               Open in chess.com
             </a>
           )}
