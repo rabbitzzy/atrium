@@ -71,11 +71,94 @@ export interface CaptureContext {
  */
 export type SystemPrompt = string | ((ctx: CaptureContext) => string)
 
-/** Server-side extraction: one schema-constrained multimodal call. */
-export interface CaptureExtract {
+/**
+ * One region of the image to look at again, and what it is.
+ *
+ * The box is in fractions of the whole image — 0 at the left/top edge, 1 at
+ * the right/bottom — so it survives the platform resizing or re-encoding
+ * anything, and an app never has to know the pixel dimensions of what the
+ * camera happened to produce.
+ */
+export interface CloseUpRegion {
+  box: { left: number; top: number; right: number; bottom: number }
+  /**
+   * Appended to the close-up user prompt for this region alone. What the first
+   * pass already worked out about this particular piece of paper — which
+   * puzzle it is, which way round it is drawn — so the close look does not
+   * have to re-derive it from a crop that no longer shows the context.
+   */
+  note?: string
+}
+
+/**
+ * A second, closer pass over regions the first pass located (BHCS-107).
+ *
+ * Some pages carry several of the same thing — nine puzzle diagrams on one
+ * sheet — and asking one call to read all of them does not degrade gracefully:
+ * measured on a real nine-diagram page, the model returned the *same*
+ * fabricated position for seven of the nine. It is not a resolution problem,
+ * because the detail is in the image; it is that a single answer covering nine
+ * boards is one where no individual board got looked at.
+ *
+ * So an app may split the work: the first pass finds and describes the
+ * regions, and each one is then cropped out and read on its own, in parallel.
+ * The platform crops and calls; it never learns what is inside a region.
+ *
+ * The cost is one model call per region, so declare this only for a page that
+ * genuinely holds repeated independent artifacts.
+ */
+export interface CaptureCloseUp<Raw = unknown, Close = unknown> {
+  /** Where to look again. An empty list skips the pass entirely. */
+  regions(raw: Raw): CloseUpRegion[]
+
   schema: GeminiSchema
   systemPrompt: SystemPrompt
   userPrompt: string
+  /** See `CaptureExtract.model`. Runs on the station's model when unset. */
+  model?: string
+
+  /**
+   * Fold the close readings back into the extraction, in region order.
+   *
+   * A reading is `null` where that one call failed. Merge decides what that
+   * means — one unreadable diagram on a page of nine must not cost the other
+   * eight, so the sane answer is almost always to keep the region and mark it.
+   */
+  merge(raw: Raw, readings: (Close | null)[]): Raw
+}
+
+/** Server-side extraction: one schema-constrained multimodal call. */
+export interface CaptureExtract<Raw = unknown> {
+  schema: GeminiSchema
+  systemPrompt: SystemPrompt
+  userPrompt: string
+
+  /**
+   * Which model reads this pass, when the station's default will not do.
+   *
+   * Almost every pass should leave this alone: one model across the station is
+   * what makes `captures.ocr_ms` comparable between kinds, and an app pinning a
+   * model is an app that will be running last year's model a year from now.
+   *
+   * It exists because one capability turned out not to be a matter of degree.
+   * Asked where the nine diagrams on a sheet of paper are, the default model
+   * returns a tidy grid of identical boxes — measured, and unchanged by any
+   * wording of the prompt — while a model that can ground returns boxes that
+   * track the skew of a photographed page. Cropping by the first set reads the
+   * wrong squares; cropping by the second reads the board.
+   */
+  model?: string
+
+  /**
+   * Look again, closer, at what the first pass found (BHCS-107).
+   *
+   * Runs between `extract` and `refine`, and what it produces is still the
+   * *extraction* — `refine` sees the merged object and cannot tell how many
+   * calls it took to assemble. That is deliberate: it keeps `refine` pure, so
+   * the backfill can still replay it over stored rows with no image and no
+   * model calls.
+   */
+  closeUp?: CaptureCloseUp<Raw>
   /**
    * Opt into streamed extraction (BHCS-10). Nothing else about the app
    * changes; the platform picks the transport.
@@ -116,11 +199,12 @@ export interface CaptureAppServer<Raw = unknown, Result = Raw> {
    * Omit entirely for store-only kinds. That absence *is* the doodle app's
    * pipeline, which is why `runPipeline` has no special case for it.
    */
-  extract?: CaptureExtract
+  extract?: CaptureExtract<Raw>
 
   /**
    * Post-processing over the extracted output, server-side, after `extract`
-   * and before the row is updated.
+   * and its close-up pass if it declared one
+   * — and before the row is updated.
    *
    * Never overwrites the raw extraction: the verbatim transcription is the
    * audit trail a teacher needs, so `refine` produces a new object alongside

@@ -24,9 +24,11 @@ export type {
 export type {
   CaptureApp,
   CaptureAppServer,
+  CaptureCloseUp,
   CaptureContext,
   CaptureExtract,
   CaptureTheme,
+  CloseUpRegion,
   Partially,
   RecordArgs,
   SpokenScript,

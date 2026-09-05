@@ -14,8 +14,8 @@ import type { GeminiSchema } from '@atrium/schema'
 import { parsePartialJson } from './partial-json.js'
 
 const MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
-const endpoint = (method: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:${method}`
+const endpoint = (model: string, method: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:${method}`
 
 export interface VisionResult<T> {
   data: T
@@ -29,6 +29,16 @@ interface VisionArgs {
   systemPrompt: string
   userPrompt: string
   schema: GeminiSchema
+  /**
+   * Which model answers this particular call.
+   *
+   * Defaults to the station's model, which is what nearly everything uses. A
+   * pass declares its own only when it needs something the default cannot do —
+   * locating things on a page is the first: measured on a real capture, the
+   * default returns a tidy invented grid of boxes rather than where the boards
+   * actually are, and no wording of the prompt changes that.
+   */
+  model?: string
 }
 
 /** The one request body both transports send. */
@@ -59,7 +69,7 @@ function apiKey(): string {
 
 export async function visionJson<T>(args: VisionArgs): Promise<VisionResult<T>> {
   const startedAt = Date.now()
-  const res = await fetch(`${endpoint('generateContent')}?key=${apiKey()}`, {
+  const res = await fetch(`${endpoint(args.model ?? MODEL, 'generateContent')}?key=${apiKey()}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: requestBody(args),
@@ -79,7 +89,7 @@ export async function visionJson<T>(args: VisionArgs): Promise<VisionResult<T>> 
     throw new Error(`Gemini returned no content (finishReason: ${candidate?.finishReason ?? 'unknown'})`)
   }
 
-  return { data: JSON.parse(text) as T, model: MODEL, ms: Date.now() - startedAt }
+  return { data: JSON.parse(text) as T, model: args.model ?? MODEL, ms: Date.now() - startedAt }
 }
 
 /**
@@ -99,7 +109,7 @@ export async function visionJsonStream<T>(
   args: VisionArgs & { onPartial: (partial: unknown) => void },
 ): Promise<VisionResult<T>> {
   const startedAt = Date.now()
-  const res = await fetch(`${endpoint('streamGenerateContent')}?alt=sse&key=${apiKey()}`, {
+  const res = await fetch(`${endpoint(args.model ?? MODEL, 'streamGenerateContent')}?alt=sse&key=${apiKey()}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: requestBody(args),
@@ -149,7 +159,7 @@ export async function visionJsonStream<T>(
   // right outcome: the capture is marked failed, the image is already stored,
   // and the row is replayable. Persisting a repaired object would put a
   // half-read worksheet in a teacher's hands looking like a whole one.
-  return { data: JSON.parse(text) as T, model: MODEL, ms: Date.now() - startedAt }
+  return { data: JSON.parse(text) as T, model: args.model ?? MODEL, ms: Date.now() - startedAt }
 }
 
 /** A partial nobody could deliver must not cost the capture its result. */
