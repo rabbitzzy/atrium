@@ -22,12 +22,15 @@ import { inParallel } from './pool.js'
  * How many close-up calls are in flight at once (BHCS-107).
  *
  * A page of nine diagrams is nine calls, and running them one after another
- * would put the result well past the thirty seconds a child will wait. Eight
- * at a time reads a nine-puzzle sheet — the heaviest page seen so far — in
- * essentially one round, without opening an unbounded number of connections
- * for a page that turns out to hold fifty.
+ * would put the result well past the thirty seconds a child will wait.
+ *
+ * Twelve, because the rounds are what is felt: a nine-puzzle sheet at a cap of
+ * eight waits for a whole second round to read its ninth board, which measured
+ * as 44 seconds against 30 for the same page read in one. Puzzle sheets come
+ * six, nine and twelve to a page, so this reads all of the common ones in a
+ * single round — and still bounds a page that turns out to hold fifty.
  */
-const CLOSE_UP_CONCURRENCY = 8
+const CLOSE_UP_CONCURRENCY = 12
 
 export interface PipelineOutcome {
   status: 'ok' | 'skipped' | 'failed'

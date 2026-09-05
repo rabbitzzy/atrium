@@ -13,7 +13,18 @@
 import type { GeminiSchema } from '@atrium/schema'
 import { parsePartialJson } from './partial-json.js'
 
-const MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-2.5-flash'
+/**
+ * The station's model.
+ *
+ * `gemini-3.5-flash` rather than `gemini-2.5-flash`, measured on real captures
+ * rather than chosen: reading the cropped diagrams off a coach's puzzle sheet,
+ * 2.5 scored 22 of 32 ranks and 3.5 scored 26, in the same eight seconds. The
+ * average understates it. 2.5's failures are not near-misses — one run came
+ * back with the board flipped and almost nothing in common with the position —
+ * while 3.5 returned the same reading twice for every board it was asked
+ * about. Consistency is what a teacher checking a Debrief is relying on.
+ */
+const MODEL = process.env['GEMINI_MODEL'] ?? 'gemini-3.5-flash'
 const endpoint = (model: string, method: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:${method}`
 
