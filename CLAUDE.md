@@ -88,7 +88,7 @@ Four services. Keep them dumb and composable until you have real students using 
 
 2. **Skill graph + student state service** — the brain. Stores the dynamic skill tree, per-student mastery state, session history, and task templates. Exposes endpoints for: `nextTask(studentId)`, `recordAttempt(studentId, taskId, answers, ai_eval)`, `getRadar(studentId)`. Use Postgres (already on Supabase via existing BHCS portal). Keep the graph in normal relational tables — `kcs`, `kc_edges`, `student_kc_state`. Don't reach for Neo4j until you have a real graph-traversal pain point.
 
-3. **Worksheet generator** — takes a list of target KCs and produces a print-ready PDF (with QR header that encodes student_id + task_id). Templated; AI fills in problems but the layout is deterministic — this matters for the scan-back step. Imitate Gradescope's "fixed template" approach: same layout every time means the camera can align answers to expected regions.
+3. **Worksheet generator** — takes a list of target KCs and produces a print-ready Card as HTML for the browser to print (with QR header that encodes student_id + task_id; it produced a PDF until #54/#55). Templated; AI fills in problems but the layout is deterministic — this matters for the scan-back step. Imitate Gradescope's "fixed template" approach: same layout every time means the camera can align answers to expected regions.
 
 4. **Submission evaluator** — receives a scan, runs OCR/HME on the answer regions, calls a multimodal LLM (Claude Sonnet or Opus, GPT-4o, or Gemini) with a strict rubric prompt, returns a structured evaluation object. Then calls back into the skill graph service to update state.
 
@@ -98,14 +98,14 @@ A worker queue between #3 and #4 (something simple — Inngest, Trigger.dev, or 
 
 These are defaults to revisit, not commitments.
 
-- **LLM for evaluation & generation:** Gemini API (current). Gemini Flash / Pro for evaluation and generation — active API key in use. Claude Sonnet 4.6 / Opus 4.7 is the longer-term option once an Anthropic key is provisioned.
+- **LLM for evaluation & generation:** Gemini API (current). The station runs `gemini-3.5-flash`, set by `GEMINI_MODEL` and defaulted in `packages/kiosk/api/_lib/gemini.ts` — chosen on measurement, not preference (BHCS-107): `gemini-2.5-flash` cannot ground a bounding box on a photographed page, and returns an invented grid instead. One pass names its own model where a capability, not a preference, is at stake. Moving the grading and Debrief passes to Claude is BHCS-111.
 - **Math handwriting OCR:** Pix2Text (open source, free Mathpix alternative, supports Chinese natively) for the cheap path. Mathpix API for the accurate path. Or just send the cropped image to a multimodal LLM and skip OCR — the research (see /docs/research/paper-interaction.md) shows ~97–99% transcription accuracy from Claude/Gemini/GPT-4o on clean handwriting.
 - **Knowledge tracing:** pyBKT for the v1 student model. Defer DKT/pyKT until you have ≥10K interaction logs.
 - **Voice — input and output are two features, and only input is deferred.** The Phase 3 blocker was always the microphone: recording children in a shared room is a real privacy problem (Merlyn Mind voice-privacy paper), and STT + mic-muted-on-idle stays in Phase 3, still planned as Whisper.
   **Read-aloud shipped early (BHCS-15) because none of that applies to it.** It is output only — no microphone, nothing recorded, nothing retained, no consent surface. And it is what makes the digital-first Debrief true for TK–2: a Debrief a child cannot read is one that has to be printed and handed to an adult, which is exactly the paper the Leaf economy is trying not to spend. It uses the browser's own `speechSynthesis` rather than ElevenLabs or OpenAI TTS — no key, no server route, no per-play cost, and replay is instant, which deletes the audio-cache step rather than building it. `packages/kiosk/src/lib/speech.ts` is the seam if a warmer voice is worth paying for later.
 - **Frontend:** React. Inline styles per BHCS portal convention, DM Sans font.
 - **Backend:** Whatever is fastest for you to ship — likely the same Supabase + TypeScript/Python stack you already use.
-- **Worksheet rendering:** HTML → headless Chromium → PDF, with a QR code in the header. Avoid LaTeX in v1.
+- **Worksheet rendering:** HTML with a QR code in the header, printed by the browser. Avoid LaTeX in v1. *The headless-Chromium-to-PDF step is gone (#54/#55):* the kiosk already runs on the machine the printer is plugged into, so the Card renders into a hidden iframe and Chrome with `--kiosk-printing` puts it on paper with no dialog. What that cost is the tray check — see BHCS-67.
 
 ## What we are NOT building (anti-goals)
 
