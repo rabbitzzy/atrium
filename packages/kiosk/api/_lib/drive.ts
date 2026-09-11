@@ -41,7 +41,13 @@ async function accessToken(): Promise<string> {
     }),
   })
   if (!res.ok) {
-    throw new Error(`Google token refresh failed (${res.status}): ${await res.text()}`)
+    const body = await res.text()
+    // invalid_grant is never transient — the token is expired or revoked, and
+    // no retry fixes it. Name the fix, since this lands on the kiosk screen.
+    const fix = body.includes('invalid_grant')
+      ? ' Drive access has lapsed: re-run `pnpm --filter @atrium/tools oauth` and update GOOGLE_REFRESH_TOKEN on the deployment.'
+      : ''
+    throw new Error(`Google token refresh failed (${res.status}): ${body}${fix}`)
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number }
