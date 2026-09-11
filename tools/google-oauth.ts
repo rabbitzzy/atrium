@@ -1,17 +1,25 @@
 /**
  * One-time helper: mint a Google Drive refresh token.
  *
- * Run once per machine/account, paste the result into .env, and never think
- * about it again — refresh tokens do not expire unless revoked or unused for
- * six months.
+ * Run once per account, paste the result into .env and the deployment, and it
+ * lasts until revoked or left unused for six months — *if the consent screen
+ * is published* (step 3). Left in Testing, Google expires every refresh token
+ * it issues after seven days, and the station finds out on its next capture:
+ * "invalid_grant: Token has been expired or revoked."
  *
  *   pnpm --filter @atrium/tools oauth
+ *
+ * Re-running it is also the recovery from that error. It keeps the root folder
+ * GOOGLE_DRIVE_ROOT_FOLDER_ID already names when the new token can see it, so a
+ * re-mint does not split captures across two folders.
  *
  * Prerequisites (Google Cloud Console, ~5 minutes):
  *   1. Create or pick a project
  *   2. APIs & Services → Library → enable "Google Drive API"
- *   3. APIs & Services → OAuth consent screen → External → add yourself as a
- *      Test user (keeps the app in Testing; no verification review needed)
+ *   3. Google Auth Platform → Audience → External, then Publish app. drive.file
+ *      is a non-sensitive scope, so publishing needs no verification review.
+ *      A token minted while the app was still in Testing keeps its seven-day
+ *      life after you publish — mint again once it is In production.
  *   4. Credentials → Create credentials → OAuth client ID → Web application
  *      → Authorized redirect URI: http://localhost:4321/callback
  *   5. Put the client ID and secret in .env, then run this script
@@ -37,6 +45,7 @@ const REDIRECT_URI = `http://localhost:${PORT}/callback`
 const SCOPE = 'https://www.googleapis.com/auth/drive.file'
 
 const ROOT_FOLDER_NAME = 'Atrium Captures'
+const FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 
 const clientId = process.env['GOOGLE_CLIENT_ID']
 const clientSecret = process.env['GOOGLE_CLIENT_SECRET']
@@ -44,6 +53,43 @@ const clientSecret = process.env['GOOGLE_CLIENT_SECRET']
 if (!clientId || !clientSecret) {
   console.error('Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first.')
   process.exit(1)
+}
+
+/**
+ * The folder captures go into: the one .env already names, if this token can
+ * see it, otherwise a new one.
+ *
+ * A re-mint that always created a folder would hand back a new id, and pasting
+ * it would leave a teacher browsing two "Atrium Captures" with the work split
+ * between them. Rows would still read — they hold file ids, not paths — but the
+ * Drive a teacher opens would be wrong.
+ *
+ * drive.file hides another account's folder entirely, so minting as a new
+ * account (BHCS-102) cannot see the old one and falls through to creating its
+ * own — which is what that migration wants.
+ */
+async function rootFolder(accessToken: string): Promise<{ id: string; reused: boolean }> {
+  const auth = { Authorization: `Bearer ${accessToken}` }
+
+  const existing = process.env['GOOGLE_DRIVE_ROOT_FOLDER_ID']
+  if (existing) {
+    const res = await fetch(`${FILES_URL}/${encodeURIComponent(existing)}?fields=id,trashed`, { headers: auth })
+    if (res.ok) {
+      const file = (await res.json()) as { id: string; trashed: boolean }
+      if (!file.trashed) return { id: file.id, reused: true }
+    }
+    console.warn(
+      `GOOGLE_DRIVE_ROOT_FOLDER_ID is not usable by this token (${res.ok ? 'in the trash' : res.status}) — creating a new folder.`,
+    )
+  }
+
+  const res = await fetch(`${FILES_URL}?fields=id`, {
+    method: 'POST',
+    headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+  })
+  if (!res.ok) throw new Error(`Could not create the root folder (${res.status}): ${await res.text()}`)
+  return { id: ((await res.json()) as { id: string }).id, reused: false }
 }
 
 const authUrl =
@@ -102,37 +148,26 @@ const server = createServer(async (req, res) => {
     process.exit(1)
   }
 
-  // Create the root folder now, while we hold a fresh access token. Doing it
+  // Settle the root folder now, while we hold a fresh access token. Creating it
   // here rather than asking the operator to make one by hand is what keeps the
   // narrow drive.file scope workable.
-  const folderRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${data.access_token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      name: ROOT_FOLDER_NAME,
-      mimeType: 'application/vnd.google-apps.folder',
-    }),
-  })
-
-  if (!folderRes.ok) {
-    res.writeHead(500).end('Folder creation failed — see terminal.')
-    console.error(`\nCould not create the root folder (${folderRes.status}):`, await folderRes.text())
+  let folder: { id: string; reused: boolean }
+  try {
+    folder = await rootFolder(data.access_token)
+  } catch (err) {
+    res.writeHead(500).end('Folder setup failed — see terminal.')
+    console.error(`\n${(err as Error).message}`)
     server.close()
     process.exit(1)
   }
 
-  const folder = (await folderRes.json()) as { id: string }
-
   res.writeHead(200, { 'Content-Type': 'text/html' })
   res.end('<h2>Done.</h2><p>Values printed in your terminal. You can close this tab.</p>')
 
-  console.log('Add these to .env:\n')
+  console.log('Add these to .env, and to the deployment (Vercel: Production and Preview, then redeploy):\n')
   console.log(`GOOGLE_REFRESH_TOKEN=${data.refresh_token}`)
   console.log(`GOOGLE_DRIVE_ROOT_FOLDER_ID=${folder.id}\n`)
-  console.log(`Created "${ROOT_FOLDER_NAME}" in your Drive:`)
+  console.log(folder.reused ? 'Kept the existing root folder:' : `Created "${ROOT_FOLDER_NAME}" in your Drive:`)
   console.log(`https://drive.google.com/drive/folders/${folder.id}\n`)
 
   server.close()

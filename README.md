@@ -102,7 +102,11 @@ Google setup at all.
 For the Drive backend, run `pnpm --filter @atrium/tools oauth` once — it mints a
 refresh token and creates the root folder, printing both values for `.env`. It
 needs an OAuth client (Web application) with `http://localhost:4321/callback`
-as a redirect URI, and the Drive API enabled on that project.
+as a redirect URI, the Drive API enabled on that project, and the consent
+screen **published** (Google Auth Platform → Audience → Publish app). A consent
+screen left in Testing issues refresh tokens that die after seven days, and
+every capture then fails with `invalid_grant`. Re-running the script is the
+recovery; it keeps the existing root folder.
 
 Browse what's been captured — image, crop metadata, focus scores, raw OCR JSON —
 at `localhost:5173/#admin`.
